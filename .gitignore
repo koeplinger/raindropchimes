@@ -1,0 +1,14 @@
+# IntelliJ
+*.iml
+.idea/*
+
+# Eclipse
+.settings/*
+.cproject
+.project
+Release/*
+
+# Build / runtime / temp files
+a.out
+*.wav
+*.ogg
