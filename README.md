@@ -7,11 +7,22 @@ For algorithm details and samples see http://www.jenskoeplinger.com/RC/raindrops
 
 ## Compile
 
-Usage:
+Use a standard C compiler with math library. Example for the GNU C compiler:
 
 `gcc harmonics.c -lm`
 
-Then run a.out
+Then run `a.out`. A file `out.wav` will be created, which is a raw WAV file at
+44.1kHz sampling rate (stereo). You should compress it, e.g. into OGG using
+`ffmpeg`:
+
+`ffmpeg -i out.wav -c:a libvorbis -qscale:a 10 out_1603376412_1700_800.ogg`
+
+In this example I've put the random seed (1603376412) and song and cycle
+duration (800 and 1700, respectively) into the file name.
+Only this way will you be able to recreate the
+song if you like it! The quality parameter `-qscale:a 10` means "best quality",
+which results in unneccessarily large files. Omit this parameter for default
+quality, or set to something smaller (e.g. 7 or 5) if the quality is still OK.
 
 
 ## Variations
