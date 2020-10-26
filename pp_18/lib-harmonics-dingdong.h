@@ -112,8 +112,8 @@ void writeDingDong(void) {
     setPrettyPrime(); // defines an array of 11 pretty prime numbers
 
 //  song parameters
-    binsPerSlot       =    3100     ; // 4000 is about one cycle per second
-    totalSongTime     =    2000     ; // ... how many cycles
+    binsPerSlot       =    1700     ; // 4000 is about one cycle per second
+    totalSongTime     =    800     ; // ... how many cycles
     vibrato           =      0.0010 ; // very slight vibrato
     vibratoBinsAvg    =  18000.     ; // about 3 vibrato cycles per second
 
