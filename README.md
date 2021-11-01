@@ -25,6 +25,25 @@ which results in unneccessarily large files. Omit this parameter for default
 quality, or set to something smaller (e.g. 7 or 5) if the quality is still OK.
 
 
+## Example: Change tune tempo and duration
+
+In order to slow down or speed up the song, and make it longer or shorter,
+edit the `lib-harmonics-dingdong.h` file. For example, this created
+a nice slow song that's about 5 minutes long:
+
+```text
+...
+  seedTime = 1635773128;
+...
+ binsPerSlot       =   11000     ; // 4000 is about one cycle per second
+ totalSongTime     =     110     ; // ... how many cycles
+...
+
+```
+
+Make these edits, then compile and run it. You'll get the same tune as I did.
+
+
 ## Variations
 
 Just for fun, the following subfolders have tweaked variants:

@@ -66,7 +66,7 @@ void writeDingDong(void) {
 
     writeOutputWaveFileHeader();
     seedTime = time(NULL);
-    // seedTime = 10;
+    seedTime = 1635773128;
     srand ( seedTime ); // initialize randomizer
 
     printf("...random seed: %d\n", seedTime);
@@ -112,8 +112,8 @@ void writeDingDong(void) {
     setPrettyPrime(); // defines an array of 11 pretty prime numbers
 
 //  song parameters
-    binsPerSlot       =    3440     ; // 4000 is about one cycle per second
-    totalSongTime     =     200     ; // ... how many cycles
+    binsPerSlot       =   11000     ; // 4000 is about one cycle per second
+    totalSongTime     =     110     ; // ... how many cycles
     vibrato           =      0.0010 ; // very slight vibrato
     vibratoBinsAvg    =  18000.     ; // about 3 vibrato cycles per second
 
