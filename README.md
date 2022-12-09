@@ -28,7 +28,7 @@ quality, or set to something smaller (e.g. 7 or 5) if the quality is still OK.
 ## Example: Change tune tempo and duration
 
 In order to slow down or speed up the song, and make it longer or shorter,
-edit the `lib-harmonics-dingdong.h` file. For example, this created
+edit the `harmonics-dingdong.c` file. For example, this created
 a nice slow song that's about 5 minutes long:
 
 ```text
@@ -42,13 +42,4 @@ a nice slow song that's about 5 minutes long:
 ```
 
 Make these edits, then compile and run it. You'll get the same tune as I did.
-
-
-## Variations
-
-Just for fun, the following subfolders have tweaked variants:
-
-* `pfib_18` use Fibunacci numbers instead of primes
-* `pp_18` use 18 prime numbers (instead of 11)
-* `psq_18` use squares (instead of primes)
 

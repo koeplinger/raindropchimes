@@ -97,7 +97,8 @@ int main(int argc, char **argv) {
 
 // ---------------------------------------------------------------------------
 
-#include "lib-harmonics-util.h"
-#include "lib-harmonics-dingdong.h"
+#include "harmonics-util.c"
+#include "harmonics-dingdong.c"
 
 // ---------------------------------------------------------------------------
+
