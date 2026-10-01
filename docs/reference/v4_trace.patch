@@ -1,0 +1,190 @@
+diff -u a/harmonics.c b/harmonics.c
+--- a/harmonics.c	2026-09-30 21:12:42.725737666 -0400
++++ b/harmonics.c	2026-09-30 21:12:42.728737702 -0400
+@@ -67,6 +67,7 @@
+ int    sampleFrequency;           // sampling frequency (e.g. 44100 for 44.1kHz)
+ double prettyTone[25];            // the 25 nearest overtone relations to a base tone
+ int    prettyPrime[11];           // an array of 11 pretty prime numbers
++int g_csbdump = -1; unsigned g_seed = 1; int g_totalSongTime = 500; /* PATCH: initialised => .data */
+ 
+ // ---------------------------------------------------------------------------
+ // main()
+@@ -75,6 +76,7 @@
+ int main(int argc, char **argv) {
+ 
+     int i; // throwaway
++    g_seed = (argc > 1) ? (unsigned) strtoul(argv[1], 0, 10) : (unsigned) time(NULL); if (argc > 2) g_totalSongTime = atoi(argv[2]); if (argc > 3) g_csbdump = atoi(argv[3]); /* PATCH */
+ 
+     printf(harmonicsVersion);
+     printf(licenseMain);
+diff -u a/lib-harmonics-dingdong.h b/lib-harmonics-dingdong.h
+--- a/lib-harmonics-dingdong.h	2026-09-30 21:12:42.725737666 -0400
++++ b/lib-harmonics-dingdong.h	2026-09-30 21:12:42.728737702 -0400
+@@ -60,12 +60,18 @@
+ 
+ 
+     int    i;                       // throwaway
++    /* INSTR */
++    FILE *ev = fopen("events.txt", "w");
++    long long sampleIdx = 0; long long tick = 0; long long nEvents = 0, nRand = 0;
++    long long nOverflow = 0, nNaN = 0, firstNaN = -1, firstOverflow = -1; double peak = 0.;
++    int rejects, rTone, rPos, rCnt, modCnt, rPlay, rVib, k, sumPlay, dcSeen; int minCSB = 1<<30, maxCSB = -(1<<30);
++    long long csbHist0 = 0, csbHistOver = 0;
+     double dd;                      // throwaway
+ 
+     printf("writeDingDong...\n");
+ 
+     writeOutputWaveFileHeader();
+-    srand ( time(NULL) ); // initialize randomizer
++    srand ( g_seed ); // initialize randomizer
+ 
+     i = 0;
+ 
+@@ -109,7 +115,7 @@
+ 
+ //  song parameters
+     binsPerSlot       =   1700      ; // 4000 is roughly one cycle per second
+-    totalSongTime     =    500      ; // ... how many cycles
++    totalSongTime     =    g_totalSongTime      ; // ... how many cycles
+     vibrato           =      0.0005 ; // very slight vibrato
+     vibratoBinsAvg    =  18000.     ; // about 3 vibrato cycles per second
+ 
+@@ -142,10 +148,12 @@
+     binsPerDing = binsPerSlot * 11;
+ 
+ //  first sound
+-    slotFrequency[0]    = exp(((double) (rand() % 10000)) / 1000.) / 1.5 + 50. ; // start frequency
++    rTone = rand() % 10000; rPos = rand() % 101; rCnt = rand() % 11; nRand += 3;
++    slotFrequency[0]    = exp(((double) (rTone)) / 1000.) / 1.5 + 50. ; // start frequency
+     slotPlay[0]         = 1                                ;
+-    slotPos[0]          = ((double) (rand() % 101)) / 100. ; // left-/right-position
+-    slotAmplitudeCnt[0] = prettyPrime[(rand() % 11)]       ; // start number of repetitions
++    slotPos[0]          = ((double) (rPos)) / 100. ; // left-/right-position
++    slotAmplitudeCnt[0] = prettyPrime[(rCnt)]       ; // start number of repetitions
++    fprintf(ev, "INIT sample=0 tick=0 slot=0 r10000=%d r101=%d r11=%d | freq=%.17g pos=%.2f cnt=%d play=1 vibBins=18000\n", rTone, rPos, rCnt, slotFrequency[0], slotPos[0], slotAmplitudeCnt[0]);
+     slotAmplitudeCur[0] = slotAmplitudeCnt[0]              ;
+     densityCnt          = 1.                               ; // one note is playing; moving logarithmic avg
+     vibratoBins[0]      = vibratoBinsAvg                   ; // set vibrato
+@@ -188,6 +196,9 @@
+ 
+                 curSlotBin = curBin + ((curSlot - i) * binsPerSlot); // bin position relative to start of slot
+                 if (curSlotBin < 0) { curSlotBin = curSlotBin + binsPerDing; }
++                if (curSlotBin < minCSB) minCSB = curSlotBin; if (curSlotBin > maxCSB) maxCSB = curSlotBin;
++                if (curSlotBin == 0) csbHist0++; if (curSlotBin > binsPerDing) csbHistOver++;
++                if (g_csbdump > 0 && sampleIdx >= 18711LL*3 && sampleIdx < 18711LL*4 && i == g_csbdump - 1) fprintf(stderr, "CSB slot=%d sample=%lld curSlot=%d curBin=%d csb=%d\n", i, sampleIdx, curSlot, curBin, curSlotBin);
+ 
+                 if ((2 * curSlotBin) < binsPerSlot) {
+                 //  onset of the tone, ramp up
+@@ -258,6 +269,10 @@
+ 
+         writeTwoByteInteger(fp, aLeft);
+         writeTwoByteInteger(fp, aRight);
++        if (aLeft != aLeft || aRight != aRight) { if (firstNaN < 0) firstNaN = sampleIdx; nNaN++; }
++        else { if (fabs(aLeft) > peak) peak = fabs(aLeft); if (fabs(aRight) > peak) peak = fabs(aRight);
++               if (fabs(aLeft) >= 32768. || fabs(aRight) >= 32768.) { if (firstOverflow < 0) firstOverflow = sampleIdx; nOverflow++; } }
++        sampleIdx++;
+ 
+     //  now check for slot advance, new tone, and songTime advance
+ 
+@@ -266,6 +281,8 @@
+ 
+             curBin = 0;
+             curSlot = curSlot + 1;
++            tick++;
++            if (sampleIdx != tick * (binsPerSlot + 1)) { fprintf(stderr, "TICK/SAMPLE MISMATCH\n"); exit(9); }
+ 
+             if (curSlot > 10) {
+             //  one whole ding was played, advance next sequence
+@@ -273,7 +290,7 @@
+                 curSlot = 0;
+                 songTime = songTime + 1;
+ 
+-                printf("...(songTime %d)\n", songTime);
++
+ 
+             }
+ 
+@@ -283,6 +300,8 @@
+             if (slotAmplitudeCur[curSlot] < 0) {
+             //  slot has finished playing; get a new one
+ 
++                sumPlay = 0; for (k = 0; k < 11; k++) if (slotPlay[k] == 1 && slotFrequency[k] > 0) sumPlay++;
++                if (sumPlay != densityCnt) { fprintf(stderr, "DENSITY MISMATCH %d %d\n", sumPlay, densityCnt); exit(9); }
+                 density = sin(PI * ((double) songTime) / ((double) (totalSongTime - 31)));
+ 
+                 if (songTime > (totalSongTime - 31)) {
+@@ -303,29 +322,33 @@
+                 prevFrequency = slotFrequency[prevSlot];
+ 
+             //  determine frequency for the new sound (current slot)
+-                newFrequency = 0.;
++                newFrequency = 0.; rejects = -1; dcSeen = densityCnt;
+ 
+                 while ((newFrequency < 50.) || (newFrequency > 16000.)) {
+                 //  get an audible new frequency
+                 
+-                    newFrequency = slotFrequency[prevSlot] * prettyTone[(rand() % 25)];
++                    rTone = rand() % 25; nRand++; rejects++;
++                    newFrequency = slotFrequency[prevSlot] * prettyTone[(rTone)];
+                 
+                 }
+ 
+                 slotFrequency[curSlot] = newFrequency;
+-                slotPos[curSlot] = ((double) (rand() % 101)) / 100.;
++                rPos = rand() % 101; nRand++;
++                slotPos[curSlot] = ((double) (rPos)) / 100.;
+ 
+             //  determine how often it is to be played
+                 if (densityCnt < 10) {
+             //  one (or no) tone are playing right now; play only one note
+ 
+-                    slotAmplitudeCnt[curSlot] = prettyPrime[(rand() % (densityCnt + 2))];
++                    modCnt = densityCnt + 2; rCnt = rand() % (densityCnt + 2); nRand++;
++                    slotAmplitudeCnt[curSlot] = prettyPrime[(rCnt)];
+     
+                 } else {
+                 //  play each note more often; if N tones are playing, then play
+                 //  a new note as often as up to the Nth prime number
+   
+-                    slotAmplitudeCnt[curSlot] = prettyPrime[(rand() % 11)];
++                    modCnt = 11; rCnt = rand() % 11; nRand++;
++                    slotAmplitudeCnt[curSlot] = prettyPrime[(rCnt)];
+     
+                 }
+                 
+@@ -334,7 +357,8 @@
+            //   based on density, determine whether it should be
+            //   played at all (or whether just tracked silently)
+ 
+-                if ((150. * (density + 0.05)) > ((double) (rand() % 100))) {
++                rPlay = rand() % 100; nRand++;
++                if ((150. * (density + 0.05)) > ((double) (rPlay))) {
+                 //  yes, play it
+ 
+                     slotPlay[curSlot] = 1;
+@@ -356,8 +380,13 @@
+             //  frequency for all notes, instead vary the rate by
+             //  some 10% or so)
+ 
+-                vibratoBins[curSlot] = vibratoBinsAvg * (1. + 0.001 * ((double) (rand() % 100)));
++                rVib = rand() % 100; nRand++;
++                vibratoBins[curSlot] = vibratoBinsAvg * (1. + 0.001 * ((double) (rVib)));
+                 vibratoBinCnt[curSlot] = 0.;
++                nEvents++;
++                fprintf(ev, "NOTE sample=%lld tick=%lld songTime=%d slot=%d dens=%.6f dcSeen=%d dcUsed=%d | rejects=%d r25=%d r101=%d rCnt=%d(mod %d) r100play=%d r100vib=%d | prevF=%.17g ratio=%.17g freq=%.17g pos=%.2f cnt=%d play=%d vibBins=%.17g radCarry=%.17g\n",
++                    sampleIdx, tick, songTime, curSlot, density, dcSeen, densityCnt, rejects, rTone, rPos, rCnt, modCnt, rPlay, rVib,
++                    prevFrequency, prettyTone[rTone], slotFrequency[curSlot], slotPos[curSlot], slotAmplitudeCnt[curSlot], slotPlay[curSlot], vibratoBins[curSlot], slotCurRad[curSlot]);
+ 
+             } // ... end if slot finished playing
+ 
+@@ -366,6 +395,10 @@
+     } // ... end songTime
+ 
+     closeOutputWaveFile();
++    fprintf(ev, "SUMMARY samples=%lld ticks=%lld events=%lld randCalls=%lld peak=%.1f overflowSamples=%lld firstOverflow=%lld nanSamples=%lld firstNaN=%lld minCSB=%d maxCSB=%d csbEq0=%lld csbOver=%lld\n",
++        sampleIdx, tick, nEvents, nRand, peak, nOverflow, firstOverflow, nNaN, firstNaN, minCSB, maxCSB, csbHist0, csbHistOver);
++    fprintf(ev, "PRETTYPRIME_OOB &prettyPrime=%p:", (void*)prettyPrime); for (k = 0; k < 97; k++) fprintf(ev, " %d", prettyPrime[k]); fprintf(ev, "\n");
++    fclose(ev);
+ 
+     printf("...writeDingDong done.\n");
+ 
