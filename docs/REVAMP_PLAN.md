@@ -1,8 +1,8 @@
 # Raindrop Chimes: revamp plan
 
 Status: plan, 2026-10-01. Nothing of the new codebase is written yet.
-Next step: answer the open questions in [section 13](#13-open-questions), then start
-phase 0 of [section 8](#8-phases).
+The open questions are answered ([section 13](#13-your-answers-to-the-open-questions)).
+Next step: phase 0 of [section 8](#8-phases).
 
 The goal is a clean, expandable codebase that keeps three things apart: **composition**
 (the algorithm that decides which tones sound when), the **synthesizer** (wave form,
@@ -144,7 +144,7 @@ zero bytes of audio (the length is never filled in).
 | **end phase** | The final 30 cycles, in which no tones are created. |
 | **score** | The full list of tones plus the settings the composer used. It is the whole composition. |
 | **rules** | The tables and numbers that steer a composing algorithm. |
-| **generator** | The random number generator. Two matter: Linux (`glibc`) and Apple (`bsd`). |
+| **generator** | The random number generator. The new program has one: the Linux one (`glibc`), built in. |
 | **voice** | The part of the synthesizer that plays one slot. |
 | **patch** | The description of a sound: wave form, modulations, reverb. |
 | **reverb** | Your word for the effect. Technically it is a feedback echo with a handful of delays. |
@@ -298,9 +298,11 @@ time. An algorithm that needs a different time structure needs a new score versi
   tune.)
 - **A named rule set or patch is never changed once a tune has been made with it.** A
   changed one gets a new name. Otherwise old seeds would silently give new tunes.
-- **The generator is a named component** handed to the composer. Two are needed:
-  `glibc` (Linux; all 2011 tunes) and `bsd` (Apple; the 2022 tunes). The system's own
-  `rand()` is never called.
+- **The generator is an explicit component** handed to the composer: the Linux
+  generator (`glibc`), built into the program from `reference/glibc_rand.c`. The
+  system's own `rand()` is never called, so a seed gives the same tune on any computer.
+  The Apple generator, which made the 2022 tunes, is not carried forward; its rule is
+  kept in `reference/README.md` as a record only.
 - **End phase.** In the final 30 cycles the composer creates no tones at all. Tones
   already sounding finish their strikes. This is what the v4 code intended, it is what
   the favourite tune audibly does (its last audible tone starts in cycle 468), and it
@@ -387,7 +389,7 @@ produces stereo frames in floating point, where 1.0 is full scale.
 src/
   score/     tone.h          Tone and Score
              score_text.c    write, read, check a score file
-  compose/   rng.c           named generators: glibc, bsd
+  compose/   rng.c           the Linux generator (glibc)
              rules.c         rule sets as data, and their start-up check
              slotwalk.c      the slot algorithm
   synth/     timing.c        ticks to seconds
@@ -402,7 +404,9 @@ src/
   main.c                     command line and presets
 tests/
 docs/        this plan; reference/
+samples/     tunes made with the new program, with their scores (CC BY 4.0)
 legacy/      the old program and all examples, untouched
+LICENSE      MIT, for the code
 Makefile
 ```
 
@@ -421,7 +425,7 @@ Three rules keep the parts apart, checked automatically by `make test`:
 |---|---|
 | A rule set for the slot algorithm (new ratio table, new repetition table, other numbers) | Add one block of constants to `rules.c`. |
 | A different composing algorithm | Add a file in `compose/` with a function that fills a score, and one line in the list of algorithms. |
-| A generator | Add two functions (seed, next) to `rng.c` and one line in its list. |
+| Another generator | Add two functions (seed, next) to `rng.c` and a way to choose it. Not planned: the built-in Linux generator is the only one. |
 | A wave form, envelope, loudness law or pan law | Add one function to `shapes.c` and one line in its list. |
 | A new kind of modulation (say, tremolo) | Add one factor in `voice.c` and one field in the patch. |
 | An effect | Add a file that provides create / process / longest-delay / destroy, and one line in the list of effects. Patches list their effects in order. |
@@ -444,8 +448,10 @@ chimes score --preset v4 --seed 42              # the score only, no audio
 chimes render my.score --patch v6 -o my.wav     # any score through any patch
 ```
 
-- Each part of a preset can be overridden: `--rules`, `--generator`, `--patch`,
-  `--bins`, `--drift`, `--cycles`, `--rate`, `--gain`, `-o`.
+- Without `--preset`, the v4 preset is used: a plain `chimes make` composes with the
+  14 February rules and sound.
+- Each part of a preset can be overridden: `--rules`, `--patch`, `--bins`, `--drift`,
+  `--cycles`, `--rate`, `--gain`, `-o`.
 - `--bins B` is the old tempo unit, so numbers from old file names still work: a slot
   lasts (B+1)/44100 seconds. `--drift D` is in the same unit: D samples at 44.1 kHz
   added to the slot length per cycle (v6: 1). `--gain` is the output gain, a factor.
@@ -474,10 +480,8 @@ In order of importance.
    the lineage in one go; the favourite exercises every branch of the rules. On failure
    it shows the first differing line. On a system other than Linux, a difference only
    in the last digits of the frequency column passes, with a note.
-2. **Generator known answers.** glibc with seed 1 gives 1804289383, 846930886. bsd with
-   seed 1 gives 16807, 282475249; bsd with seed 2147483647 gives 0, 520932930,
-   28925691 (this last one follows Apple's published code and has not been checked on a
-   Mac). This separates generator bugs from rule bugs.
+2. **Generator known answers.** With seed 1 the generator gives 1804289383, 846930886.
+   This separates generator bugs from rule bugs.
 3. **Separation.** The tone lines are identical under different tempo, sample rate and
    patch, and different under a different number of cycles. The include rules of
    section 5.5 hold.
@@ -506,9 +510,8 @@ In order of importance.
    v10 rules it may lie outside); ratios come from the table; no tone is created in the
    end phase; the composer always finishes. Every built-in rule set passes the start-up
    check, and a deliberately broken one is refused.
-9. **Later versions.** Reference tone lists for v5, v6 and v10 (and the `pp_18`
-   variant, if open question 4 says so), traced from the old sources, each checked like
-   item 1.
+9. **Later versions.** Reference tone lists for v5, v6 and v10, traced from the old
+   sources with the Linux generator, each checked like item 1.
 
 ## 8. Phases
 
@@ -516,12 +519,12 @@ Each phase ends with something that can be checked.
 
 | Phase | Work | Check |
 |---|---|---|
-| 0. Foundations | Makefile with `make test`; `rng.c` with the Linux generator, from `reference/glibc_rand.c`. | Item 2, Linux half. |
+| 0. Foundations | Makefile with `make test`; `rng.c` with the Linux generator, from `reference/glibc_rand.c`; the `LICENSE` file (MIT). | Item 2. |
 | 1. Composer | `tone.h`, the v4 rule set with its start-up check, `slotwalk.c`, the score writer, `chimes score --seed N` (v4 is the only preset until phase 4). | Items 1 and 8. The tune exists as data. |
 | 2. Dry synthesizer | Timing, voices with the v4 modulations, WAV output at output gain 1. `chimes make --seed N` with the v4 preset fixed. | The file plays. With seed 1297735820 the first tone measures 1299.5 Hz at pan 0.26 (item 7, single tone). |
-| 3. Reverb and ring-out | The reverb, ring-out. The peak is printed. | Items 5, 6 and 7 (the 48 kHz part of item 7 is run by the test program directly; `--rate` comes in phase 4), and you listen. **Phases 0–3 are the minimum that gives you your tune back.** |
-| 4. Everyday use | Clock seed; overrides; presets; the score saved next to the audio; the score reader and `chimes render`; automatic turn-down (once open question 1 is answered); the top-level README updated with how to build, run, and recreate a tune. | Item 3 for tempo, sample rate and cycles (its patch part waits for the v6 patch in phase 5), and item 4. A score written, read and rendered gives the same audio as a direct render. The command recorded in a score reproduces the same audio file. |
-| 5. Later versions, one at a time | For each of v5, v6 and v10 (and `pp_18`, if wanted): add lines to a copy of its source that log every new tone (keep these changes as a diff file next to `v4_trace.patch`); run it with the seed, tempo and cycles from an example's file name; confirm the traced program's own audio matches that example; convert and commit the tone list. Then add the rule set and the sound patch: v5 is data only; v6 brings the other level rule, its envelope, seven reverb taps and drift; v10 brings the Apple generator and its numbers. | Item 2, Apple half. Item 3, patch part. Item 9. Item 6 against their own recordings. |
+| 3. Reverb and ring-out | The reverb, ring-out. The peak is printed. The favourite tune goes into `samples/` as the first sample, with its score. | Items 5, 6 and 7 (the 48 kHz part of item 7 is run by the test program directly; `--rate` comes in phase 4), and you listen. **Phases 0–3 are the minimum that gives you your tune back.** |
+| 4. Everyday use | Clock seed; overrides; presets; the score saved next to the audio; the score reader and `chimes render`; automatic turn-down; the top-level README updated with how to build, run, and recreate a tune. | Item 3 for tempo, sample rate and cycles (its patch part waits for the v6 patch in phase 5), and item 4. A score written, read and rendered gives the same audio as a direct render. The command recorded in a score reproduces the same audio file. |
+| 5. Later versions, one at a time | For each of v5, v6 and v10: add lines to a copy of its source that log every new tone (keep these changes as a diff file next to `v4_trace.patch`); run it with the Linux generator and the seed, tempo and cycles from an example's file name; for v5 and v6, confirm the traced program's own audio matches that example (v10 has no Linux recording to compare with); convert and commit the tone list. Then add the rule set and the sound patch: v5 is data only; v6 brings the other level rule, its envelope, seven reverb taps and drift; v10 brings its numbers. | Item 3, patch part. Item 9. Item 6 for v5 and v6 against their own recordings. |
 | 6. Extension, proven | Raw output for piping into an encoder; one new wave form and one new effect, written up as worked examples of section 5.6. | The worked examples build and play, and the include rules still hold. |
 
 ## 9. The historical versions as rule sets and patches
@@ -574,11 +577,12 @@ Preset defaults (neither rules nor sound):
 | Cycles | 500 | 400 | 300 | 200 |
 | Generator of the surviving examples | Linux | Linux | Linux | Apple (2022 files) |
 
-Preset `v10` uses the Linux generator; preset `v10-mac` is the same with the Apple
-generator and reproduces the 2022 files. New tunes use the Linux generator unless told
-otherwise.
+All presets use the Linux generator. The 2022 files (`out_*.ogg`) were made with the
+Apple generator, so the new program does not reproduce them; they stay in `legacy/` as
+they are, and the Apple rule is recorded in `reference/README.md`.
 
-**The 2020 variants** are the folders `pp_18`, `pfib_18` and `psq_18`, which you
+**The 2020 variants** are not part of this plan's phases (section 13, answer 4); this
+is a record of what they are. They are the folders `pp_18`, `pfib_18` and `psq_18`, which you
 removed in December 2022 (commit 372c8da, "make your own!"), and `pfib_11`, which you
 had already removed in October 2020 (commit 03e5882). All four sources and two `pp_18`
 recordings are still in the git history.
@@ -642,8 +646,8 @@ recordings are still in the git history.
   frequency goes through `exp`, and every later frequency is a multiple of it. For the
   v4 rules this cannot change which tones are made (see the margins above), but it can
   change the last printed digits of the frequency column, so comparisons allow for it
-  (section 5.2). It matters most for the
-  2022 tunes, which were made on a Mac.
+  (section 5.2). This shows up only when the tests are run on a system other than
+  Linux, such as a Mac.
 - **Tunes other than the favourite can differ from 2011 in their final 30 cycles.** In
   the v4 code a new tone could still be switched on there, with 8 % probability per
   draw; this happened in 43 of 49 traced runs, and 129 of 192 traced seeds ended in the
@@ -664,30 +668,30 @@ recordings are still in the git history.
 - **Other sample rates.** Reverb delays round to whole samples, which shifts the
   reverb's resonances by a fraction of a hertz away from 44.1 kHz.
 
-## 13. Open questions
+## 13. Your answers to the open questions
 
-1. **Output gain.** Keep each tune at the old scale and turn it down only when it would
-   exceed full scale (the plan's default), or bring every tune up to the same peak?
-2. **A plain `chimes make`.** Should a new random tune use the v4 rules and sound, or
-   the v10 ones?
-3. **The 2022 Mac tunes.** Are they part of the first round, or can the Apple generator
-   and the v10 rules wait until v4 is fully done (phase 5)? Related: was the tune in the
-   old README (seed 1635773128, 11000 bins, 110 cycles) made on the Mac or on Linux? No
-   recording survives, so only you can say; if unsure, the program can render both.
-4. **The 2020 variants.** Do you want `pp_18`, `pfib_18` and `psq_18` back as built-in
-   rule sets, or only as an example of how to add your own?
-5. **OGG.** Is piping into `ffmpeg` or `oggenc` enough, or should compressed output be
-   built in (which adds a library dependency)?
-6. **Editing scores by hand.** Do you want to change a ratio or the root frequency in a
-   score file and render it? The reader is built either way (phase 4); this decides how
-   forgiving it must be about hand-written files.
-7. **Licence.** The old code is under Creative Commons BY-SA 3.0 and prints that on
-   every run. Should the new code keep that licence, or take one written for software
-   (for example MIT or GPL)? Should the program still print a banner?
-8. **Name.** The plan calls the program `chimes`. Keep that, or `raindropchimes`, or
-   something else?
-9. **The example's file name.** Rename `sndharmonics4_1700-400c.ogg` to carry 500 and
-   the seed, or leave `legacy/` strictly as it was?
+Answered 2026-10-01.
+
+1. **Output gain.** The plan's default: each tune keeps the old scale and is turned
+   down only when it would exceed full scale.
+2. **A plain `chimes make`** uses the 14 February (v4) rules and sound.
+3. **The 2022 Mac tunes are not part of the new program.** They remain a legacy
+   reference only, and their behaviour is not carried forward: the new program always
+   calls its own built-in Linux generator. Which computer made the old README tune
+   (seed 1635773128) therefore no longer matters.
+4. **The 2020 variants: not now.** To be dealt with later. Keep the code reasonably
+   modular for a future refactor, but not over-abstracted.
+5. **OGG:** piping into `ffmpeg` or `oggenc` is enough. No built-in encoder.
+6. **Editing scores by hand: not yet.** To be dealt with later, with the same guidance
+   as answer 4. Until then the score reader only has to accept files the program wrote
+   itself.
+7. **Licence.** MIT for the code. CC BY 4.0 for the sound samples. (`legacy/` keeps its
+   own Creative Commons BY-SA 3.0 notice.) Whether the program prints a licence line
+   when it runs was not answered; the plan assumes it does not.
+8. **Name:** `chimes`.
+9. **`legacy/` stays untouched**, including the misleading file name. New samples go
+   into a new `samples/` directory. The first is the reconstructed favourite: seed
+   1297735820, 500 cycles, made with the new program, with its score beside it.
 
 ## Appendix A: the v4 rules, exactly
 
