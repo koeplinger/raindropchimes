@@ -4,7 +4,7 @@ Music from simple mathematical rules. Every tone is derived from an earlier tone
 exact small-integer ratio (the families 5, 3, 1, 1/3 and 1/5, shifted by powers of two),
 so the music has no scale and no tuning: pitch is a lineage, not a position on a grid.
 
-For the idea and some history see http://www.jenskoeplinger.com/RC/raindrops.html
+For the idea and some history see http://jenskoeplinger.com/raindropchimes
 
 ## Build
 
