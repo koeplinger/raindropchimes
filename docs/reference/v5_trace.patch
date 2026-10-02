@@ -1,0 +1,193 @@
+--- a/harmonics.c
++++ b/harmonics.c
+@@ -70,6 +70,11 @@
+ double prettyTone[25];            // the 25 nearest overtone relations to a base tone
+ int    prettyPrime[11];           // an array of 11 pretty prime numbers
+ 
++// TRACE: seed, cycles and binsPerSlot come from the command line
++unsigned g_seed;
++int    g_totalSongTime = 400;
++int    g_binsPerSlot   = 1700;
++
+ // ---------------------------------------------------------------------------
+ // main()
+ // ---------------------------------------------------------------------------
+@@ -78,6 +83,11 @@
+ 
+     int i; // throwaway
+ 
++    // TRACE: usage: harmonics_trace [seed [cycles [binsPerSlot]]]
++    g_seed = (argc > 1) ? (unsigned) strtoul(argv[1], 0, 10) : (unsigned) time(NULL);
++    if (argc > 2) g_totalSongTime = atoi(argv[2]);
++    if (argc > 3) g_binsPerSlot   = atoi(argv[3]);
++
+     printf(harmonicsVersion);
+     printf(licenseMain);
+     printf(licenseDetail);
+--- a/lib-harmonics-dingdong.h
++++ b/lib-harmonics-dingdong.h
+@@ -62,10 +62,16 @@
+     double dd;                      // throwaway
+     int    seedTime;                // display the seed time
+ 
++    // TRACE: the event log, and one variable per random draw
++    FILE *ev = fopen("events.txt", "w");
++    long long nSamples = 0;
++    int  tick = 0, nTones = 1, nRand = 0;
++    int  rejects, rTone, rPos, rCnt, modCnt, rPlay, rVib, k, dSeen, dTable;
++
+     printf("writeDingDong...\n");
+ 
+     writeOutputWaveFileHeader();
+-    seedTime = time(NULL);
++    seedTime = g_seed; // TRACE (was: time(NULL))
+     srand ( seedTime ); // initialize randomizer
+ 
+     printf("...random seed: %d\n", seedTime);
+@@ -111,8 +117,8 @@
+     setPrettyPrime(); // defines an array of 11 pretty prime numbers
+ 
+ //  song parameters
+-    binsPerSlot       =   1700      ; // 4000 is roughly one cycle per second
+-    totalSongTime     =    400      ; // ... how many cycles
++    binsPerSlot       = g_binsPerSlot   ; // TRACE (was: 1700)
++    totalSongTime     = g_totalSongTime ; // TRACE (was: 400)
+     vibrato           =      0.0005 ; // very slight vibrato
+     vibratoBinsAvg    =  18000.     ; // about 3 vibrato cycles per second
+ 
+@@ -145,10 +151,14 @@
+     binsPerDing = binsPerSlot * 11;
+ 
+ //  first sound
+-    slotFrequency[0]    = exp(((double) (rand() % 10000)) / 1000.) / 1.5 + 50. ; // start frequency
++    rTone = rand() % 10000; rPos = rand() % 101; rCnt = rand() % 11; nRand += 3; // TRACE: same three draws, same order
++    slotFrequency[0]    = exp(((double) (rTone)) / 1000.) / 1.5 + 50. ; // start frequency
+     slotPlay[0]         = 1                                ;
+-    slotPos[0]          = ((double) (rand() % 101)) / 100. ; // left-/right-position
+-    slotAmplitudeCnt[0] = prettyPrime[(rand() % 11)]       ; // start number of repetitions
++    slotPos[0]          = ((double) (rPos)) / 100. ; // left-/right-position
++    slotAmplitudeCnt[0] = prettyPrime[(rCnt)]       ; // start number of repetitions
++    fprintf(ev, "INIT tick=0 cycle=0 slot=0 | r10000=%d r101=%d rCnt=%d modCnt=11 r100play=- r100vib=- | "
++                "freq=%.17g pos=%.2f cnt=%d play=%d vibBins=18000\n",
++            rTone, rPos, rCnt, slotFrequency[0], slotPos[0], slotAmplitudeCnt[0], slotPlay[0]);
+     slotAmplitudeCur[0] = slotAmplitudeCnt[0]              ;
+     densityCnt          = 1.                               ; // one note is playing; moving logarithmic avg
+     vibratoBins[0]      = vibratoBinsAvg                   ; // set vibrato
+@@ -261,6 +271,7 @@
+ 
+         writeTwoByteInteger(fp, aLeft);
+         writeTwoByteInteger(fp, aRight);
++        nSamples++; // TRACE
+ 
+     //  now check for slot advance, new tone, and songTime advance
+ 
+@@ -269,6 +280,7 @@
+ 
+             curBin = 0;
+             curSlot = curSlot + 1;
++            tick++; // TRACE
+ 
+             if (curSlot > 10) {
+             //  one whole ding was played, advance next sequence
+@@ -286,6 +298,12 @@
+             if (slotAmplitudeCur[curSlot] < 0) {
+             //  slot has finished playing; get a new one
+ 
++            //  TRACE: d is the count the audio loop made on the last sample; check it
++            //  against the slot table (the tone about to be replaced is still in it)
++                dSeen = densityCnt; dTable = 0;
++                for (k = 0; k < 11; k++) if (slotFrequency[k] > 0 && slotPlay[k] == 1) dTable++;
++                if (dTable != dSeen) { fprintf(stderr, "TRACE: d mismatch at tick %d: %d %d\n", tick, dTable, dSeen); exit(9); }
++
+                 density = sin(PI * ((double) songTime) / ((double) (totalSongTime - 31)));
+ 
+                 if (songTime > (totalSongTime - 31)) {
+@@ -307,28 +325,36 @@
+ 
+             //  determine frequency for the new sound (current slot)
+                 newFrequency = 0.;
++                rejects = -1; // TRACE
++                fprintf(ev, "NOTE tick=%d cycle=%d slot=%d endphase=%d dens=%.17g d=%d | r25all=",
++                        tick, songTime, curSlot, densityCnt < 0, density, dSeen);
+ 
+                 while ((newFrequency < 50.) || (newFrequency > 16000.)) {
+                 //  get an audible new frequency
+                 
+-                    newFrequency = slotFrequency[prevSlot] * prettyTone[(rand() % 25)];
++                    rTone = rand() % 25; nRand++; rejects++; // TRACE: every ratio draw is logged
++                    fprintf(ev, "%s%d", rejects ? "," : "", rTone);
++                    newFrequency = slotFrequency[prevSlot] * prettyTone[(rTone)];
+                 
+                 }
+ 
+                 slotFrequency[curSlot] = newFrequency;
+-                slotPos[curSlot] = ((double) (rand() % 101)) / 100.;
++                rPos = rand() % 101; nRand++; // TRACE
++                slotPos[curSlot] = ((double) (rPos)) / 100.;
+ 
+             //  determine how often it is to be played
+                 if ((densityCnt < 10) && (densityCnt > -1)) {
+                 //  play each note more often; if N tones are playing, then play
+                 //  a new note as often as up to the (N+2)th prime number
+ 
+-                    slotAmplitudeCnt[curSlot] = prettyPrime[(rand() % (densityCnt + 2))];
++                    modCnt = densityCnt + 2; rCnt = rand() % (densityCnt + 2); nRand++; // TRACE
++                    slotAmplitudeCnt[curSlot] = prettyPrime[(rCnt)];
+     
+                 } else {
+                 //  play each note as often as up to the 11th prime number
+   
+-                    slotAmplitudeCnt[curSlot] = prettyPrime[(rand() % 11)];
++                    modCnt = 11; rCnt = rand() % 11; nRand++; // TRACE
++                    slotAmplitudeCnt[curSlot] = prettyPrime[(rCnt)];
+     
+                 }
+ 
+@@ -336,12 +362,14 @@
+ 
+            //   based on density, determine whether it should be
+            //   played at all (or whether just tracked silently)
++                rPlay = -1; // TRACE: stays -1 when no level draw is made
++                if (densityCnt >= 0) { rPlay = rand() % 100; nRand++; } // TRACE: the draw of the 'else if' below
+                 if (densityCnt < 0) {
+                 //  end of song phase out
+ 
+                     slotPlay[curSlot] = 0;
+ 
+-                } else if ((150. * (density + 0.05)) > ((double) (rand() % 100))) {
++                } else if ((150. * (density + 0.05)) > ((double) (rPlay))) {
+                 //  yes, play it
+ 
+                     slotPlay[curSlot] = 1;
+@@ -363,9 +391,18 @@
+             //  frequency for all notes, instead vary the rate by
+             //  some 10% or so)
+ 
+-                vibratoBins[curSlot] = vibratoBinsAvg * (1. + 0.001 * ((double) (rand() % 100)));
++                rVib = rand() % 100; nRand++; // TRACE
++                vibratoBins[curSlot] = vibratoBinsAvg * (1. + 0.001 * ((double) (rVib)));
+                 vibratoBinCnt[curSlot] = 0.;
+ 
++            //  TRACE: the rest of the event line
++                nTones++;
++                fprintf(ev, " rejects=%d r25=%d r101=%d rCnt=%d modCnt=%d ", rejects, rTone, rPos, rCnt, modCnt);
++                if (rPlay < 0) fprintf(ev, "r100play=- "); else fprintf(ev, "r100play=%d ", rPlay);
++                fprintf(ev, "r100vib=%d | prevF=%.17g ratio=%.17g freq=%.17g pos=%.2f cnt=%d play=%d vibBins=%.17g\n",
++                        rVib, prevFrequency, prettyTone[rTone], slotFrequency[curSlot], slotPos[curSlot],
++                        slotAmplitudeCnt[curSlot], slotPlay[curSlot], vibratoBins[curSlot]);
++
+             } // ... end if slot finished playing
+ 
+         } // ... end if curBin > binsPerSlot
+@@ -374,6 +411,11 @@
+ 
+     closeOutputWaveFile();
+ 
++    // TRACE
++    fprintf(ev, "SUMMARY seed=%u cycles=%d binsPerSlotAtEnd=%d samples=%lld ticks=%d tones=%d randCalls=%d\n",
++            g_seed, totalSongTime, binsPerSlot, nSamples, tick, nTones, nRand);
++    fclose(ev);
++
+     printf("...writeDingDong done.\n");
+ 
+     printf("Song specs:\n...random seed: %d\n", seedTime);

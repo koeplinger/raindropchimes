@@ -15,3 +15,8 @@ Release/*
 a.out
 *.wav
 #*.ogg
+
+# New program: build output and test scratch
+/chimes
+tests/bin/
+tests/tmp/

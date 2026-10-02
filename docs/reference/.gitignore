@@ -1,0 +1,4 @@
+# Scratch that must not be committed with the reference material:
+# the working directory of the recipes in README.md, and Python's bytecode cache.
+/work/
+__pycache__/

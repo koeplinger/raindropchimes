@@ -1,8 +1,9 @@
 # Raindrop Chimes: revamp plan
 
-Status: plan, 2026-10-01. Nothing of the new codebase is written yet.
-The open questions are answered ([section 13](#13-your-answers-to-the-open-questions)).
-Next step: phase 0 of [section 8](#8-phases).
+Status: plan, 2026-10-01; being implemented since. The open questions are answered
+([section 13](#13-your-answers-to-the-open-questions)). A few passages were corrected on
+2026-10-02 from what the implementation and the tracing of the later versions showed;
+they are marked "(measured)" or "(as built)".
 
 The goal is a clean, expandable codebase that keeps three things apart: **composition**
 (the algorithm that decides which tones sound when), the **synthesizer** (wave form,
@@ -319,7 +320,7 @@ original program of that version created.
   continuous levels of v6 and v10. These pass through the maths library's `exp` and
   `sin`, which can differ in the last digit between systems. For the v4 rules such a
   difference is far too small to change which tones are created (margins in
-  section 12); for v10's `> 0.69` test this still has to be measured in phase 5.
+  section 12); the same holds for v10's `> 0.69` test (measured: section 12).
 - Tempo, sample rate and patch cannot affect any of this, because the composer never
   sees them.
 - The number of cycles does affect it: T is part of a tune's identity, together with
@@ -352,6 +353,10 @@ produces stereo frames in floating point, where 1.0 is full scale.
     the new render be compared with your recording wave for wave (verification item 6).
     It is a property of that patch, not a requirement: a later sound may start each
     tone at phase zero.
+  - (As built.) When a slot's tick does not fall exactly on a sample, the voice shifts
+    its phase by the fraction of a sample in between. At 44.1 kHz with whole-sample
+    tempos this does nothing. At other sample rates it keeps tones that are almost in
+    unison beating against each other the same way as at 44.1 kHz.
 - **A patch is data.** Its fields: wave form; phase at a new tone (runs on, as in v4, or
   restarts at zero); loudness law and its constant; strike-gain law; envelope; vibrato depth, base period and spread; pan law; the list of effects
   with their settings (for the reverb: each tap's delay in seconds, gain, and swap
@@ -503,8 +508,10 @@ In order of importance.
 7. **Synthesizer unit checks.** The reverb's response to a single click has the right
    delays, gains and channel swaps. A single tone has the right frequency, pan and
    loudness. Renders at 44.1 and 48 kHz start every tick at the same time (to within
-   one sample), have the same loudness per cycle (to within 1 %), and end within one
-   second of each other (the ring-out depends slightly on the sample rate).
+   one sample) and end within one second of each other. Without reverb their loudness
+   per cycle agrees to within 1 % (measured: 0.04 %). With reverb it agrees to within
+   1 % over the whole piece and 10 % in any one cycle (measured: 0.1 % and 6 %), because
+   the reverb delays round to whole samples and its resonances shift slightly.
 8. **Composer properties over 1,000 seeds.** Every parent held the previous slot when
    its child was created; frequencies stay in range (the first tone excepted: under the
    v10 rules it may lie outside); ratios come from the table; no tone is created in the
@@ -641,7 +648,8 @@ recordings are still in the git history.
   the on/off threshold). The closest calls are far above rounding differences between
   computers: for the favourite, 1.4 % on the frequency range and 0.0135 on the 0..100
   scale of the on/off draw; over 1,000 other seeds, 3·10⁻⁷ and 0.004. For v10's
-  `> 0.69` test the margins have not been measured.
+  `> 0.69` test (measured) the closest level over 60,122 traced tones was 0.690058,
+  a margin of 5.8·10⁻⁵.
 - **The maths library can differ in the last digit between systems.** The first tone's
   frequency goes through `exp`, and every later frequency is a multiple of it. For the
   v4 rules this cannot change which tones are made (see the margins above), but it can
@@ -660,11 +668,12 @@ recordings are still in the git history.
 - **Loud seeds.** Over 192 sampled seeds the v4 scale peaked at a median of 55 % of full
   scale; three seeds exceeded 90 %, and one (1297700025) exceeded full scale and
   wrapped. The automatic turn-down covers this.
-- **Tracing the later versions is still to be done (phase 5).** `docs/reference/` holds
-  the tracing changes for v4 only (`v4_trace.patch`, a file of source-code changes, not
-  a patch in the sense of section 4) and the script that turns its log into a tone
-  list. For v5, v6 and v10 there is only a header that logs every random draw; that is
-  not yet a tone list.
+- **Tracing the later versions (done).** `docs/reference/` now holds tracing changes
+  for v4, v5, v6 and v10 (`v4_trace.patch` and so on: files of source-code changes, not
+  patches in the sense of section 4), the script that turns their logs into tone
+  lists, and eight reference tone lists. The traced v5 and v6 programs match their
+  2011 recordings (correlation 0.9989 to 0.9994). The v10 lists were made with the
+  Linux generator, so they are not the 2022 tunes.
 - **Other sample rates.** Reverb delays round to whole samples, which shifts the
   reverb's resonances by a fraction of a hertz away from 44.1 kHz.
 
@@ -715,7 +724,7 @@ for tick n = 1, 2, ... while cycle c = n div S <= T - 31:
     d = number of slots whose tone has level 1
         (this includes the tone being replaced, and tones on their zero-gain strike;
          a slot that has never held a tone counts 0)
-    density = sin(pi * c / (T - 31)) ^ 2
+    density = sin((pi * c) / (T - 31)) ^ 2
     parent  = the tone now in slot (s - 1) mod S
     repeat  k = U(25);  freq = parent.freq * RATIOS[k]   until 50 <= freq <= 16000
     pan     = U(101) / 100
@@ -732,8 +741,12 @@ for tick n = 1, 2, ... while cycle c = n div S <= T - 31:
 - In cycle 0, slots 1..10 are filled one after another at ticks 1..10, each derived
   from the slot before it.
 - All divisions are real-number divisions in double precision: `U(10000)/1000.0`,
-  `U(101)/100.0`, `c/(T−31)`, and each ratio `num/den`. The range test accepts both end
-  points.
+  `U(101)/100.0`, `(pi·c)/(T−31)`, and each ratio `num/den`. The range test accepts both
+  end points.
+- In the density, `pi` is multiplied by `c` first and the product is then divided, as
+  in the original. Dividing first changes the last digit of some continuous levels in
+  v6 and v10 (measured: 33 of 451 and 29 of 562 in the reference lists); for v4 it
+  makes no difference to any tone.
 - Frequencies are multiplied as `parent.freq * (num / den)`, with the division done
   first, as in the original table. (Multiplying first and dividing after changes the
   last digit of roughly one frequency in eight.)
