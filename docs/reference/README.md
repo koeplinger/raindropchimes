@@ -3,7 +3,8 @@
 Evidence gathered on 2026-09-30 and 2026-10-01: first while recovering the seed of the
 favourite tune (`legacy/examples/sndharmonics4_1700-400c.ogg`), then while tracing the
 later versions of the old program. The revamp plan
-([../REVAMP_PLAN.md](../REVAMP_PLAN.md)) uses these files as its test oracles.
+([../REVAMP_PLAN.md](../REVAMP_PLAN.md)) uses these files as the known-right answers
+that its checks compare against.
 
 | File | What it is |
 |---|---|
@@ -32,6 +33,10 @@ comment header.
 The recipes run from the repository root and need Linux: the old sources call the
 system's `rand()`, which must be the glibc one. Each `diff` prints nothing when the list
 is reproduced.
+
+`make test` repeats this comparison on other seeds: `tests/check_20_original_program.sh`
+builds the traced v4, v6 and v10 programs the same way and compares their tones with
+the new composer's.
 
 Every recipe on this page works inside `docs/reference/work/` and nowhere else. Git
 ignores that directory (see `.gitignore` here), so nothing in it can be committed by
@@ -129,7 +134,9 @@ source's own value, is used for all three.
 ## What the traced programs log
 
 The v5, v6 and v10 traced programs write `events.txt` with one line per new tone, the
-first tone included (`INIT`), and tones of the end phase included (`endphase=1`):
+first tone included (`INIT`), and tones of the end phase included (`endphase=1`). The
+label `NOTE` at the start of a line is the traced program's own word; it marks one new
+tone.
 
 ```
 NOTE tick=24 cycle=2 slot=2 endphase=0 dens=0.0086350773972429049 d=0 | r25all=17 rejects=0 r25=17 r101=6 rCnt=0 modCnt=2 r100play=- r100vib=11 | prevF=1663.4585852217506 ratio=0.66666666666666663 freq=1108.9723901478337 pos=0.06 cnt=1 play=0.69999999999999996 vibBins=18197.999999999996

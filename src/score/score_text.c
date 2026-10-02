@@ -112,14 +112,15 @@ static int read_setting(Score *score, char *line)
     return 0;
 }
 
-/* "# render: key value with spaces" */
-static void read_render_note(Score *score, char *line)
+/* "# render: key value with spaces". Returns 0, or -1 if the line cannot be
+ * kept: no value, too long, or too many such lines. */
+static int read_render_line(Score *score, char *line)
 {
     char *key = line + strlen(RENDER_PREFIX);
     char *space = strchr(key, ' ');
-    if (!space) return;
+    if (!space) return -1;
     *space = '\0';
-    score_set_render_note(score, key, space + 1);
+    return score_set_render_line(score, key, space + 1);
 }
 
 /* "tick cycle slot parent ratio freq_hz pan reps level jitter" */
@@ -181,7 +182,12 @@ int score_read(FILE *file, Score *score, char *err, size_t errlen)
                 return -1;
             }
         } else if (strncmp(line, RENDER_PREFIX, strlen(RENDER_PREFIX)) == 0) {
-            read_render_note(score, line);
+            if (read_render_line(score, line) != 0) {
+                snprintf(err, errlen, "line %ld: not a usable \"# render: key value\" line (no "
+                         "value, a key or value that is too long, or more than %d such lines)",
+                         line_number, SCORE_RENDER_LINES);
+                return -1;
+            }
         } else if (line[0] == '#' || line[0] == '\0') {
             continue;
         } else if (line[0] == '@') {

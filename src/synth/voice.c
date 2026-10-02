@@ -51,10 +51,24 @@ void voice_init(Voice *voice)
     voice->strike_tick = 0;
     voice->phase = 0.0;
     voice->phase_step = 0.0;
+    voice->highest = 0;
     voice->vibrato_frames = 1.0;
     voice->vibrato_count = 0.0;
     voice->left = 0.0;
     voice->right = 0.0;
+}
+
+/* The highest whole multiple of the tone's frequency that still lies below
+ * half the sample rate, with the vibrato at its widest. Overtones above it
+ * cannot be carried; a wave form leaves them out. 0 if the tone itself lies
+ * that high; such a tone is not sounded (see begin_strike). For low tones the
+ * answer is "more than any wave form uses". */
+static int highest_multiple(double freq_hz, const VoiceSetup *setup)
+{
+    double top = 0.5 * setup->sample_rate / (freq_hz * (1.0 + fabs(setup->patch->vibrato_depth)));
+
+    if (!(top < 1000.0)) return 1000;
+    return (int) ceil(top) - 1;    /* the largest whole number below top */
 }
 
 /* Works out the gain of the strike that is beginning. */
@@ -69,6 +83,10 @@ static void begin_strike(Voice *voice, const VoiceSetup *setup, int strike, int6
     gain = setup->loudness(tone->freq_hz, setup->patch->loudness_constant)
          * tone->level
          * setup->strike_gain(strike, tone->reps);
+    /* A tone at or above half the sample rate cannot be carried: it would
+     * come out as another, wrong frequency. It is not sounded. (At 44100 Hz
+     * no tone of the built-in rule sets lies that high.) */
+    if (voice->highest == 0) gain = 0.0;
     setup->pan(tone->pan, &left, &right);
     voice->left = gain * left;
     voice->right = gain * right;
@@ -101,6 +119,7 @@ void voice_start_tone(Voice *voice, const VoiceSetup *setup, const Tone *tone, d
 
     voice->tone = tone;
     voice->phase_step = SHAPES_TWO_PI * tone->freq_hz / setup->sample_rate;
+    voice->highest = highest_multiple(tone->freq_hz, setup);
     voice->vibrato_frames = patch->vibrato_period_seconds * (1.0 + patch->vibrato_spread * jitter)
                           * setup->sample_rate;
     voice->vibrato_count = 0.0;
@@ -153,7 +172,7 @@ void voice_add(Voice *voice, const VoiceSetup *setup, int64_t tick, int64_t firs
         if (silent) continue;
 
         u = whole_slots + (double) (first + i) * frame_in_slots;
-        value = setup->wave(voice->phase) * setup->envelope(u, setup->slots);
+        value = setup->wave(voice->phase, voice->highest) * setup->envelope(u, setup->slots);
         frames[2 * i] += value * voice->left;
         frames[2 * i + 1] += value * voice->right;
     }

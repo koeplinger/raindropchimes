@@ -21,7 +21,7 @@ $CC $CFLAGS -Isrc -o tests/bin/compose_compare tests/compose_compare.c -lm || ex
 
 # On Linux every digit must match. Elsewhere the maths library may round the
 # first frequency, and the levels of v6 and v10, differently in the last
-# digit; that passes, with a note.
+# digit; that passes, with a remark.
 case "$(uname -s)" in
     Linux) mode=exact ;;
     *)     mode=loose ;;

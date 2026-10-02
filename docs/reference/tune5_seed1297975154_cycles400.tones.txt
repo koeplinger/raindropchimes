@@ -12,7 +12,7 @@
 # tick     slot boundary index; cycle = tick / 11, slot = tick % 11
 # parent   tick at which the tone it derives from was created (the tone then occupying the previous slot)
 # ratio    exact frequency ratio to the parent tone
-# freq_hz  resulting frequency (double, 17 significant digits)
+# freq_hz  resulting frequency (a double-precision number, 17 significant digits)
 # pan      0 = left .. 1 = right
 # reps     repetition count N: struck N+1 times, once per cycle, at gain N/N, (N-1)/N, .. 0/N
 # level    1 = sounds, 0 = tracked silently (still passes its frequency on to the next slot)

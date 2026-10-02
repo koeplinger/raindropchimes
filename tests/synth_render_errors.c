@@ -1,6 +1,7 @@
 /* synth_render_errors.c -- checks what render_score refuses and where it
  * stops: unknown names in a patch, settings that cannot be rendered, a value
- * that is not a number, the output gain, and the upper limit of the ring-out.
+ * that is not a number, the output gain, and the ring-out: its upper limit,
+ * and the exact frame at which a piece ends.
  */
 #include <math.h>
 #include <stdio.h>
@@ -105,8 +106,39 @@ int main(void)
         fail("everlasting reverb: %s", err);
     printf("everlasting reverb: ring-out stopped after %.3f s\n",
            (double) (stats.frames - stats.music_frames) / RATE);
-    if (stats.frames - stats.music_frames != (int64_t) (RENDER_RING_OUT_LIMIT * RATE))
-        fail("the ring-out should stop at %g s", RENDER_RING_OUT_LIMIT);
+    /* 60 seconds, written out here: the plan's number, not the code's own. */
+    if (stats.frames - stats.music_frames != (int64_t) (60.0 * RATE))
+        fail("the ring-out should stop at 60 s");
+
+    /* Where a piece ends. One tone all the way on the right, and a reverb of
+     * one tap that does not swap sides: the left channel is silent from the
+     * first frame to the last, and only the right one rings out. The piece
+     * must end when BOTH channels have been quiet for longer than the
+     * longest delay: longest + 1 quiet frames after the last loud one. */
+    {
+        Score right_only;
+        int64_t longest = 11025;    /* 0.25 s at 44.1 kHz */
+        int64_t last_loud = -1;
+
+        echo.taps[0].delay_seconds = 0.25;
+        echo.taps[0].gain = 0.7;
+        one_tone_score(&right_only, 0, 440.0, 1.0, 1);
+        capture_init(&capture);
+        if (render_score(&right_only, &timing, &patch, RATE, 1.0, &capture.sink, &stats, err, sizeof err) != 0)
+            fail("one-sided ring-out: %s", err);
+        for (i = 0; i < capture.frames; i++) {
+            if (capture.samples[2 * i] != 0.0) fail("one-sided ring-out: the left channel is not silent");
+            if (fabs(capture.samples[2 * i + 1]) >= 1.0 / 65536.0) last_loud = i;
+        }
+        printf("one-sided ring-out: last loud frame %ld, piece ends after %ld frames\n",
+               (long) last_loud, (long) capture.frames);
+        if (last_loud < stats.music_frames) fail("one-sided ring-out: there is no tail to test");
+        if (capture.frames != last_loud + 1 + longest + 1)
+            fail("the piece should end %ld quiet frames after its last loud frame, at %ld frames",
+                 (long) (longest + 1), (long) (last_loud + 1 + longest + 1));
+        capture_free(&capture);
+        score_free(&right_only);
+    }
 
     /* The output gain comes last: half the gain, half the peak, and a
      * shorter ring-out. Measuring (no sink) gives the same numbers as

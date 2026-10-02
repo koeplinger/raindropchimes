@@ -6,9 +6,11 @@
 #include <string.h>
 
 #include "synth/reverb.h"
+#include "synth/soften.h"
 
 static const Effect *const EFFECTS[] = {
     &REVERB_EFFECT,
+    &SOFTEN_EFFECT,
 };
 
 const Effect *effect_find(const char *name)

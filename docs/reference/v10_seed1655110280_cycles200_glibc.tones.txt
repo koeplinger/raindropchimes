@@ -14,11 +14,11 @@
 # tick     slot boundary index; cycle = tick / 11, slot = tick % 11
 # parent   tick at which the tone it derives from was created (the tone then occupying the previous slot)
 # ratio    exact frequency ratio to the parent tone
-# freq_hz  resulting frequency (double, 17 significant digits)
+# freq_hz  resulting frequency (a double-precision number, 17 significant digits)
 # pan      0 = left .. 1 = right
 # reps     repetition count N: struck N+1 times, once per cycle, at gain N/N, (N-1)/N, .. 0/N
 # level    the tone's own volume, above 0 and at most 1 (the first tone: 0.7), written with the fewest digits
-#          that read back as the same double. A tone is a counted tone if its level is above 0.69.
+#          that read back as the same number. A tone is a counted tone if its level is above 0.69.
 # jitter   raw 0..99 draw; the 2011 sound uses it for the vibrato period, 18000 * (1 + 0.001 * jitter)
 #          samples at 44.1 kHz ('-' = no draw, 18000)
 #

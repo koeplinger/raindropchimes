@@ -100,7 +100,7 @@ int main(int argc, char **argv)
     }
 
     if (status == 0 && last_digit_lines > 0)
-        printf("note: %ld of %ld lines differ only in the last digits of the frequency or "
+        printf("remark: %ld of %ld lines differ only in the last digits of the frequency or "
                "the level (this computer's maths library rounds differently)\n",
                last_digit_lines, line);
     else if (status == 0)

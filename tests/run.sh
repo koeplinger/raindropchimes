@@ -1,5 +1,7 @@
 #!/bin/sh
-# Runs every check in tests/check_*.sh, in name order.
+# Runs every check in tests/check_*.sh, in name order. The numbers group them:
+# 05 the parts stay apart; 10-29 the composer; 30-39 the score; 40-69 the
+# synthesizer and the output; 70-89 the command line.
 # A check exits 0 (pass), 77 (skipped, e.g. a tool it needs is missing) or anything else (fail).
 # Checks may build helper programs into tests/bin and write scratch files into tests/tmp.
 

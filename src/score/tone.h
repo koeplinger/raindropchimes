@@ -21,15 +21,16 @@ typedef struct {
     int32_t jitter;    /* 0..99, or -1 for none (root)                            */
 } Tone;
 
-#define SCORE_NAME_LEN     32
-#define SCORE_RENDER_NOTES 16
+#define SCORE_NAME_LEN       32
+#define SCORE_RENDER_LINES     16
+#define SCORE_RENDER_VALUE_LEN 512   /* must stay well below the line length the reader accepts (1024) */
 
 /* One "# render: key value" line: a record of how audio was made from the
  * score. Never part of the composition. */
 typedef struct {
     char key[16];
-    char value[512];
-} RenderNote;
+    char value[SCORE_RENDER_VALUE_LEN];
+} RenderLine;
 
 typedef struct {
     char     rules[SCORE_NAME_LEN];      /* name of the rule set               */
@@ -40,7 +41,7 @@ typedef struct {
     Tone    *tones;                      /* in order of tick                   */
     int32_t  n_tones;
     int32_t  capacity;
-    RenderNote render[SCORE_RENDER_NOTES];
+    RenderLine render[SCORE_RENDER_LINES];
     int32_t  n_render;
 } Score;
 
@@ -57,10 +58,12 @@ const Tone *score_tone_at(const Score *score, int32_t tick);
  * created there. */
 int32_t score_tone_end(const Score *score, const Tone *tone);
 
-/* Sets (or replaces) a render note; score_render_note returns NULL if absent. */
-void        score_set_render_note(Score *score, const char *key, const char *value);
-const char *score_render_note(const Score *score, const char *key);
-void        score_clear_render_notes(Score *score);
+/* Sets (or replaces) a render line. Returns 0, or -1 if there is no room for
+ * another line or the key or the value is too long: nothing is ever cut short.
+ * score_render_line returns the value, or NULL if there is no such line. */
+int         score_set_render_line(Score *score, const char *key, const char *value);
+const char *score_render_line(const Score *score, const char *key);
+void        score_clear_render_lines(Score *score);
 
 /* Checks what the score format requires of any composing algorithm:
  * ticks increase; exactly one root, and it comes first; every parent is an

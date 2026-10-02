@@ -18,7 +18,7 @@ static const double RATES[2] = { 44100.0, 48000.0 };
 
 /* ------------------------------------------------------- tick starts */
 
-/* A sink that only notes the first frame that is not digital silence. */
+/* A sink that only records the first frame that is not digital silence. */
 typedef struct {
     Sink    sink;
     int64_t frame;        /* frames received so far                 */

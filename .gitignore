@@ -20,3 +20,6 @@ a.out
 /chimes
 tests/bin/
 tests/tmp/
+
+# Tunes made while trying the program in the top folder
+/chimes_*.score

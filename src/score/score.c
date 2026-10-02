@@ -47,21 +47,24 @@ int32_t score_tone_end(const Score *score, const Tone *tone)
     return tone->tick + score->slots * (tone->reps + 1);
 }
 
-void score_set_render_note(Score *score, const char *key, const char *value)
+int score_set_render_line(Score *score, const char *key, const char *value)
 {
-    RenderNote *note = NULL;
+    RenderLine *line = NULL;
     int32_t i;
+
+    if (strlen(key) >= sizeof line->key || strlen(value) >= sizeof line->value) return -1;
     for (i = 0; i < score->n_render; i++)
-        if (strcmp(score->render[i].key, key) == 0) note = &score->render[i];
-    if (!note) {
-        if (score->n_render == SCORE_RENDER_NOTES) return;
-        note = &score->render[score->n_render++];
-        snprintf(note->key, sizeof note->key, "%s", key);
+        if (strcmp(score->render[i].key, key) == 0) line = &score->render[i];
+    if (!line) {
+        if (score->n_render == SCORE_RENDER_LINES) return -1;
+        line = &score->render[score->n_render++];
+        snprintf(line->key, sizeof line->key, "%s", key);
     }
-    snprintf(note->value, sizeof note->value, "%s", value);
+    snprintf(line->value, sizeof line->value, "%s", value);
+    return 0;
 }
 
-const char *score_render_note(const Score *score, const char *key)
+const char *score_render_line(const Score *score, const char *key)
 {
     int32_t i;
     for (i = 0; i < score->n_render; i++)
@@ -69,7 +72,7 @@ const char *score_render_note(const Score *score, const char *key)
     return NULL;
 }
 
-void score_clear_render_notes(Score *score)
+void score_clear_render_lines(Score *score)
 {
     score->n_render = 0;
 }
@@ -131,6 +134,13 @@ int score_check(const Score *score, char *err, size_t errlen)
         if (tone->reps < 1) {
             snprintf(err, errlen, "tone %d: repetition count %d is below 1",
                      (int) tone->tick, (int) tone->reps);
+            goto done;
+        }
+        /* The tick at which its strikes are done (score_tone_end) must still
+         * be a 32-bit whole number. */
+        if ((int64_t) tone->tick + (int64_t) score->slots * ((int64_t) tone->reps + 1) > INT32_MAX) {
+            snprintf(err, errlen, "tone %d: repetition count %d takes its strikes past the "
+                     "largest tick there is", (int) tone->tick, (int) tone->reps);
             goto done;
         }
         if (!(tone->pan >= 0.0 && tone->pan <= 1.0)) {

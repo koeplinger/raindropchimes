@@ -1,9 +1,11 @@
 # Raindrop Chimes: revamp plan
 
-Status: plan, 2026-10-01; being implemented since. The open questions are answered
-([section 13](#13-your-answers-to-the-open-questions)). A few passages were corrected on
-2026-10-02 from what the implementation and the tracing of the later versions showed;
-they are marked "(measured)" or "(as built)".
+Status: implemented, 2026-10-02. All phases of [section 8](#8-phases) are built, and
+`make test` passes. How to use the program is in [../README.md](../README.md); how to
+extend it, in [EXTENDING.md](EXTENDING.md). This plan stays as the record of the
+design: the exact rules and formulas, the reasons, and how the favourite tune's seed
+was recovered. Passages that were corrected from what the implementation and the
+tracing of the later versions showed are marked "(measured)" or "(as built)".
 
 The goal is a clean, expandable codebase that keeps three things apart: **composition**
 (the algorithm that decides which tones sound when), the **synthesizer** (wave form,
@@ -13,6 +15,8 @@ program as it was on 14 February 2011, because that version made your favourite 
 
 ## 1. Where things stand
 
+- **The new program is built**: `make` gives `./chimes`. The favourite tune, made with
+  it, is in [samples/](../samples/) with its score.
 - The old program and its examples are parked, untouched, in [legacy/](../legacy/).
 - The seed of the favourite tune is recovered: **1297735820**
   (Monday 2011-02-14, 21:10:20 US Eastern). Details are in
@@ -54,7 +58,7 @@ Yours:
    This is checked on tone lists, not on audio.
 3. **The synthesizer has to sound right, not match sample for sample.** There is no
    "legacy-exact" render mode.
-4. **End-of-song bugs are not carried over.** The v4 code ends the favourite tune by
+4. **End-of-tune bugs are not carried over.** The v4 code ends the favourite tune by
    accident: an out-of-range table read produces a 0/0, which silences the reverb at
    200.34 s. The new code lets the reverb ring out.
 5. **Synth order is wave form, then modulation, then reverb.** The composer knows
@@ -151,9 +155,9 @@ zero bytes of audio (the length is never filled in).
 | **reverb** | Your word for the effect. Technically it is a feedback echo with a handful of delays. |
 | **tap** | One delayed copy that the reverb feeds back. |
 | **timing** | Tempo: seconds per slot, and how much that changes per cycle (the **drift**). |
-| **preset** | A bundle of rules, generator, patch, timing and cycles for one version (v4, v6, ...). |
+| **preset** | A bundle of rules, patch, timing and cycles for one version (v4, v6, ...). Every preset uses the one built-in generator. |
 | **frame** | One left sample plus one right sample. |
-| **output gain** | One factor applied to the whole piece before it is written. 1 = the scale the old program used. |
+| **output gain** | One factor applied to the whole piece before it is written. 1 = the loudness the old program had. |
 | **saturate** | Hold at the largest value instead of wrapping round. |
 | **ring-out** | The reverb tail after the last strike. |
 
@@ -194,7 +198,7 @@ synthesizer to output. Everything else is plain functions and data tables.
 ### 5.1 The score
 
 The score is the contract between composer and synthesizer. It exists in memory as a
-struct and on disk as a text file that prints that struct.
+record (a C struct) and on disk as a text file that prints that record.
 
 ```
 # raindropchimes score 1
@@ -213,8 +217,8 @@ struct and on disk as a text file that prints that struct.
 typedef struct {
     int32_t tick;      /* creation tick = the tone's identity                     */
     int32_t parent;    /* tick of the tone it derives from; -1 for the root       */
-    int32_t num, den;  /* exact ratio to the parent                               */
-    double  freq_hz;   /* root: drawn. Others: parent's freq_hz * num/den         */
+    int32_t num, den;  /* exact ratio to the parent (0, 0 for the root)           */
+    double  freq_hz;   /* root: drawn. Others: parent's freq_hz * (num / den)     */
     double  pan;       /* 0 = left .. 1 = right                                   */
     int32_t reps;      /* N >= 1: strikes 0..N, one per cycle                     */
     double  level;     /* 0 = tracked, else up to 1                               */
@@ -227,7 +231,8 @@ The file format:
 - Lines starting with `#` are comments: they are never part of the composition. The
   reader skips them, with two exceptions. The first line (`# raindropchimes score 1`)
   names the format version and is checked. Lines of the form `# render: key value` are
-  remembered, so that `chimes render` can use them as its default settings (section 6).
+  remembered, so that `chimes render` can use the patch, bins and drift recorded there
+  as its default settings (section 6).
 - Lines starting with `@` hold what the composer used, one `@ key value` per line:
   rules, generator, seed, cycles, slots.
 - Every other line is one tone. Fields are separated by one space. `tick`, `cycle`,
@@ -249,8 +254,11 @@ What the score means:
 - **Lineage is the truth.** `freq_hz` is a convenience: the composer needs it for its
   range test and the synthesizer needs it to make sound. When a score is read from a
   file, only the root's `freq_hz` is trusted; the rest are recomputed down the chain
-  (this reproduces every frequency in the reference list bit for bit). Changing the
-  root frequency therefore transposes the whole piece.
+  (this reproduces every frequency in the reference list bit for bit).
+  (As built.) The reader also compares every printed frequency with the recomputed one
+  and refuses the file if they differ by more than one part in a billion. A root
+  frequency changed by hand is therefore refused, not followed; transposing a piece
+  belongs to the later work on editing scores (section 13, answer 6).
 - **Tracked tones are in the score**, because later tones descend from them. The
   synthesizer skips them.
 - **Strikes are not listed.** The tone carries `reps`; the synthesizer expands the
@@ -282,7 +290,7 @@ time. An algorithm that needs a different time structure needs a new score versi
   | repetition table | 1, 2, 3, 5, 7, 11, 13, 17, 23, 29, 31 |
   | first tone: how far into the repetition table its draw may reach | all 11 |
   | later tones: how far the draw may reach | `d + 2` entries while `d < 10`, else all 11 (the 10 and 11 belong to the table's length, not to the slot count) |
-  | density gain g, in density = min(1, g·sin(π·c/(T−31)))² | 1 (v10: 2.5) |
+  | density gain g, in density = min(1, g·sin(π·c/(T−31)))² (c = the current cycle, T = the number of cycles) | 1 (v10: 2.5) |
   | level rule | on/off, with scale 150 and offset 0.05 |
   | a tone is counted if | its level is 1 |
   | first tone's level; level of a new tone when nothing is counted | 1; 1 |
@@ -291,7 +299,8 @@ time. An algorithm that needs a different time structure needs a new score versi
   The first tone's frequency law is part of the algorithm, not a field. The historical
   versions differ only in such fields, plus a choice between two level rules (see
   [section 9](#9-the-historical-versions-as-rule-sets-and-patches)).
-- **Rule sets are checked when the program starts:** every repetition count is at least
+- **Rule sets are checked** (as built: whenever one is used, and `make test` checks
+  every built-in one): every repetition count is at least
   1; the repetition draw can never reach past the end of its table; the frequency range
   is not empty. The ratio redraw gives up with an error after 10,000 tries. A rule set
   that fails stops the program with a message naming the field. (A table shorter than
@@ -341,6 +350,11 @@ produces stereo frames in floating point, where 1.0 is full scale.
   tempo, tick n starts at sample 1701·n, as in 2011.
 - **Voices.** One voice per slot. For each strike the voice computes, per sample,
   `wave(phase) × loudness law(frequency) × level × strike gain(j, N) × envelope(u) × pan`.
+  - (As built.) A wave form is also told the highest multiple of the tone's frequency
+    that the sample rate can carry, so that one with overtones can leave out those
+    that would come out as wrong frequencies. The cosine has none and ignores it. A
+    tone that itself lies at or above half the sample rate is not sounded; at 44100 Hz
+    no tone of the built-in rule sets lies that high.
   - `u` is the strike's age in slots: whole slots elapsed since the strike began, plus
     the fraction of the current slot elapsed. Every strike is therefore exactly 11
     units long, whatever the tempo and drift.
@@ -370,7 +384,7 @@ produces stereo frames in floating point, where 1.0 is full scale.
   have stayed below half a 16-bit step (1/65536 of full scale) for longer than the
   longest reverb delay. The piece ends at the end of that quiet stretch. Upper limit:
   60 s. For the favourite tune the music ends at 199.4 s and the reverb takes about
-  8.5 s to die away, so the new file will be about 208 s long. (The 2011 file was
+  8.5 s to die away, so the new file is 207.9 s long. (The 2011 file was
   212.1 s, with the cut to silence at 200.34 s.)
 
 ### 5.4 Output
@@ -378,37 +392,42 @@ produces stereo frames in floating point, where 1.0 is full scale.
 - **The interface** is three functions: open, write a block of stereo frames, close. A
   format is one file that implements them. The output only converts and writes.
 - **First format:** 16-bit stereo WAV with correct header lengths. Second: raw 32-bit
-  floating-point frames to standard output, so that `ffmpeg` or `oggenc` can make OGG
-  or FLAC without any codec library in this project.
+  floating-point frames to standard output, so that `ffmpeg` can make OGG or FLAC
+  without any codec library in this project. (As built: `oggenc` cannot read these
+  frames, it takes whole-number samples only. It can encode the finished WAV file:
+  `oggenc file.wav`.)
 - **Conversion to 16 bit** is `round(x × 32768)`, saturated to −32768..32767. The output
   counts saturated samples and reports them. A value that is not a number stops the
   program with an error.
-- **Default output gain: 1**, the old scale (the favourite tune peaks at 51 % of full
+- **Default output gain: 1**, the loudness of the old program (the favourite tune peaks at 51 % of full
   scale). If a tune would exceed full scale it is turned down just enough, and the
   program says so. This needs the peak before writing; a render pass takes about two
-  seconds, so the synthesizer simply renders twice.
+  seconds, so the synthesizer simply renders twice. (As built: also when `--gain` is
+  given, so that a render that cannot work shows before any file is touched.)
 
 ### 5.5 Files
 
 ```
 src/
   score/     tone.h          Tone and Score
-             score_text.c    write, read, check a score file
+             score.c         building, searching and checking a score in memory
+             score_text.c    write and read a score file
   compose/   rng.c           the Linux generator (glibc)
-             rules.c         rule sets as data, and their start-up check
+             rules.c         rule sets as data, and their check
              slotwalk.c      the slot algorithm
   synth/     timing.c        ticks to seconds
              voice.c         oscillator and modulations for one voice
              shapes.c        wave forms, envelopes, loudness / strike-gain / pan laws, by name
              reverb.c        the reverb
-             effects.h       what an effect must provide
+             soften.c        a second effect, the worked example of EXTENDING.md
+             effects.c       the list of effects (effects.h: what an effect must provide)
              patch.c         patches as data
              render.c        runs a score through voices and effects into an output
-  output/    sink.h          what an output format must provide
+  output/    sink.c          the list of formats (sink.h: what a format must provide)
              wav.c  raw.c
   main.c                     command line and presets
-tests/
-docs/        this plan; reference/
+tests/       the checks of section 7: run.sh runs every check_*.sh
+docs/        this plan; EXTENDING.md; reference/
 samples/     tunes made with the new program, with their scores (CC BY 4.0)
 legacy/      the old program and all examples, untouched
 LICENSE      MIT, for the code
@@ -417,25 +436,36 @@ Makefile
 
 Three rules keep the parts apart, checked automatically by `make test`:
 
-- `compose/` includes nothing from `synth/` or `output/`.
+- `compose/` includes nothing from `synth/` or `output/`. (A C file includes another
+  when it uses what that file defines.)
 - `synth/` and `output/` include nothing from `compose/` and never touch a generator.
 - `output/` sees only frames.
 
-`make test` runs every check in section 7. It needs only a C compiler, a shell and
-`diff`; the likeness check (item 6) also needs `ffmpeg` and is skipped without it.
+`make test` runs every check of section 7 and some more, 25 in all. It needs a C
+compiler and the usual shell tools. Three checks need more and are skipped where that
+is missing: the two likeness checks need `ffmpeg`; the comparison with the rebuilt 2011
+programs needs `tar`, `patch`, `python3` and a Linux computer.
+
+Each `.c` file has a `.h` file beside it that says what it offers to the others;
+`compose/compose.h` announces the composing algorithm and `output/formats.h` the
+formats. `README.md` at the top says how to build and use the program.
 
 ### 5.6 How to extend it
 
 | To add | Do this |
 |---|---|
 | A rule set for the slot algorithm (new ratio table, new repetition table, other numbers) | Add one block of constants to `rules.c`. |
-| A different composing algorithm | Add a file in `compose/` with a function that fills a score, and one line in the list of algorithms. |
+| A different composing algorithm | Add a file in `compose/` with a function that fills a score. (As built: there is no list of algorithms yet; `main.c` calls the one there is directly.) |
 | Another generator | Add two functions (seed, next) to `rng.c` and a way to choose it. Not planned: the built-in Linux generator is the only one. |
-| A wave form, envelope, loudness law or pan law | Add one function to `shapes.c` and one line in its list. |
+| A wave form, envelope, loudness law, strike-gain law or pan law | Add one function to `shapes.c` and one line in its list. |
 | A new kind of modulation (say, tremolo) | Add one factor in `voice.c` and one field in the patch. |
 | An effect | Add a file that provides create / process / longest-delay / destroy, and one line in the list of effects. Patches list their effects in order. |
 | A sound | Add one block of constants to `patch.c`. |
-| An output format | Add a file in `output/` that provides open / write / close, and one line in the list of formats. |
+| An output format | Add a file in `output/` that provides open / write / close, one line in `formats.h` and one in the list of formats. (As built: the command line chooses only between WAV and raw frames.) |
+
+[EXTENDING.md](EXTENDING.md) shows the common ones step by step (wave form, effect,
+sound, rule set), with two worked examples that are in the code, the wave form `bell`
+and the effect `soften`, and says what the others take.
 
 The lists are plain name-to-function tables in the file they belong to. There is no
 plugin system and no configuration language; the four historical versions differ in
@@ -456,7 +486,7 @@ chimes render my.score --patch v6 -o my.wav     # any score through any patch
 - Without `--preset`, the v4 preset is used: a plain `chimes make` composes with the
   14 February rules and sound.
 - Each part of a preset can be overridden: `--rules`, `--patch`, `--bins`, `--drift`,
-  `--cycles`, `--rate`, `--gain`, `-o`.
+  `--cycles`. `--rate`, `--gain` and `-o` are set apart from any preset.
 - `--bins B` is the old tempo unit, so numbers from old file names still work: a slot
   lasts (B+1)/44100 seconds. `--drift D` is in the same unit: D samples at 44.1 kHz
   added to the slot length per cycle (v6: 1). `--gain` is the output gain, a factor.
@@ -468,12 +498,34 @@ chimes render my.score --patch v6 -o my.wav     # any score through any patch
   including a complete command that recreates the file: the seed and every setting are
   written out, even if you typed only `chimes make`. File names are a convenience, no
   longer the only record.
-- `chimes render` takes tempo and patch from the score's `# render:` lines if present,
-  otherwise from the preset (`--preset`, or the default preset); command-line options
-  override both.
+- `chimes render` takes patch, tempo and drift from the command line. What is not given
+  there comes from the score's `# render:` lines, or, if the score has none or
+  `--preset` is given, from the preset (`--preset`, else the default `v4`). Sample rate
+  and output gain are not taken from the score: without `--rate` and `--gain` they are
+  44100 and the automatic gain.
 - `-o -` writes raw floating-point frames to standard output instead of a WAV file
-  (phase 6), for piping into `ffmpeg` or `oggenc`. The score is then written under its
-  default name.
+  (phase 6), for piping into `ffmpeg`. The score is then written under its default
+  name.
+- (As built.) Further details of the command line:
+  - `--drift` may be negative: the piece then speeds up.
+  - The recorded command names the rule set and the patch (`--rules`, `--patch`)
+    rather than a preset, so that it stays valid if a preset's defaults ever change.
+    Paths in it are quoted where a shell needs it. A command too long for one line of
+    the score (511 characters) is left out, with a message; the settings are still
+    recorded.
+  - A render that cannot work is refused before any file is touched: settings out of
+    range, a `# render:` line in a score that cannot be used, an audio file that would
+    land on its own score, a name ending in `.ogg`, `.mp3` or the like (the program
+    writes WAV only), a score file that may not be written, or a piece too long for a
+    WAV file (about 6.8 hours at 44.1 kHz).
+  - The score is written beside its place first and moved there when it is complete,
+    so that a score that is already there is never left half written. If the audio
+    cannot be written to the end (a full disk), the audio file is left as it is, the
+    program says that it is incomplete, and no score is written for it.
+  - `chimes score` composes only: it refuses the options that belong to rendering,
+    as `chimes render` refuses those that belong to composing.
+  - `chimes help`, or `--help` after any command, prints the options, with the names
+    of the presets, rule sets and patches there are.
 
 ## 7. Verification
 
@@ -484,7 +536,7 @@ In order of importance.
    proves the generator, the order of the random draws, the count of counted tones and
    the lineage in one go; the favourite exercises every branch of the rules. On failure
    it shows the first differing line. On a system other than Linux, a difference only
-   in the last digits of the frequency column passes, with a note.
+   in the last digits of the frequency column passes, with a remark.
 2. **Generator known answers.** With seed 1 the generator gives 1804289383, 846930886.
    This separates generator bugs from rule bugs.
 3. **Separation.** The tone lines are identical under different tempo, sample rate and
@@ -505,6 +557,13 @@ In order of importance.
    0.99909 (left) and 0.99921 (right), with the worst cycle at 0.9935, which is also
    what the original code reaches. This is a check of the v4 patch, not a render mode.
    Your ears on the first half minute remain the real test.
+   (Measured.) The built program reaches these same numbers. The v5 and v6 sounds are
+   checked the same way against their own recordings, v6 with an overall pass mark of
+   0.9985 instead of 0.999: 0.9991 to 0.9994 for the two v5
+   tunes and 0.9989 to 0.9993 for the two v6 tunes, each exactly what the original
+   program of that version reaches. For those four the per-cycle mark leaves out the
+   cycles in which the recording is nearly silent, where the noise of the OGG
+   compression is as large as the music.
 7. **Synthesizer unit checks.** The reverb's response to a single click has the right
    delays, gains and channel swaps. A single tone has the right frequency, pan and
    loudness. Renders at 44.1 and 48 kHz start every tick at the same time (to within
@@ -515,8 +574,8 @@ In order of importance.
 8. **Composer properties over 1,000 seeds.** Every parent held the previous slot when
    its child was created; frequencies stay in range (the first tone excepted: under the
    v10 rules it may lie outside); ratios come from the table; no tone is created in the
-   end phase; the composer always finishes. Every built-in rule set passes the start-up
-   check, and a deliberately broken one is refused.
+   end phase; the composer always finishes. Every built-in rule set passes the rule-set
+   check of section 5.2, and a deliberately broken one is refused.
 9. **Later versions.** Reference tone lists for v5, v6 and v10, traced from the old
    sources with the Linux generator, each checked like item 1.
 
@@ -527,12 +586,16 @@ Each phase ends with something that can be checked.
 | Phase | Work | Check |
 |---|---|---|
 | 0. Foundations | Makefile with `make test`; `rng.c` with the Linux generator, from `reference/glibc_rand.c`; the `LICENSE` file (MIT). | Item 2. |
-| 1. Composer | `tone.h`, the v4 rule set with its start-up check, `slotwalk.c`, the score writer, `chimes score --seed N` (v4 is the only preset until phase 4). | Items 1 and 8. The tune exists as data. |
+| 1. Composer | `tone.h`, the v4 rule set with its check, `slotwalk.c`, the score writer, `chimes score --seed N` (v4 is the only preset until phase 4). | Items 1 and 8. The tune exists as data. |
 | 2. Dry synthesizer | Timing, voices with the v4 modulations, WAV output at output gain 1. `chimes make --seed N` with the v4 preset fixed. | The file plays. With seed 1297735820 the first tone measures 1299.5 Hz at pan 0.26 (item 7, single tone). |
 | 3. Reverb and ring-out | The reverb, ring-out. The peak is printed. The favourite tune goes into `samples/` as the first sample, with its score. | Items 5, 6 and 7 (the 48 kHz part of item 7 is run by the test program directly; `--rate` comes in phase 4), and you listen. **Phases 0–3 are the minimum that gives you your tune back.** |
-| 4. Everyday use | Clock seed; overrides; presets; the score saved next to the audio; the score reader and `chimes render`; automatic turn-down; the top-level README updated with how to build, run, and recreate a tune. | Item 3 for tempo, sample rate and cycles (its patch part waits for the v6 patch in phase 5), and item 4. A score written, read and rendered gives the same audio as a direct render. The command recorded in a score reproduces the same audio file. |
+| 4. Everyday use | Clock seed; overrides; presets; the score saved next to the audio; the score reader and `chimes render`; automatic turn-down; the top-level README updated with how to build, run, and recreate a tune. | Item 3 for tempo, sample rate and cycles (its patch part waits for the v6 patch in phase 5), and item 4. A score written, read and rendered gives the same audio as a direct render (at the default sample rate and output gain). The command recorded in a score reproduces the same audio file. |
 | 5. Later versions, one at a time | For each of v5, v6 and v10: add lines to a copy of its source that log every new tone (keep these changes as a diff file next to `v4_trace.patch`); run it with the Linux generator and the seed, tempo and cycles from an example's file name; for v5 and v6, confirm the traced program's own audio matches that example (v10 has no Linux recording to compare with); convert and commit the tone list. Then add the rule set and the sound patch: v5 is data only; v6 brings the other level rule, its envelope, seven reverb taps and drift; v10 brings its numbers. | Item 3, patch part. Item 9. Item 6 for v5 and v6 against their own recordings. |
 | 6. Extension, proven | Raw output for piping into an encoder; one new wave form and one new effect, written up as worked examples of section 5.6. | The worked examples build and play, and the include rules still hold. |
+
+(As built, 2026-10-02.) All seven phases are done. The first sample was made after
+phase 6 rather than phase 3, as an OGG file through `ffmpeg`. The worked examples of
+phase 6 are the wave form `bell`, the effect `soften` and the patch `bell`.
 
 ## 9. The historical versions as rule sets and patches
 
@@ -551,7 +614,9 @@ Rules (composition):
 | First tone's level; level when nothing is counted | 1; 1 | 0.7; 0.7 | 0.7; 0.7 |
 
 v4 and v5 differ only in the end phase, which the new composer replaces for all
-versions, and in the default number of cycles. They are one rule set.
+versions, and in the default number of cycles. They are one rule set. (As built: the
+rule sets are named `v4`, `v6` and `v10`, the patches `v4`, `v6`, `v10` and `bell`;
+the preset `v5` is the rule set `v4` and the patch `v4` with 400 cycles.)
 
 The two level rules need a few lines of code each, because they use the generator
 differently. Both draw at the same place: after the repetition count, before the jitter.
@@ -632,7 +697,7 @@ recordings are still in the git history.
 
 ## 11. Not being built
 
-- Any sample-exact reproduction of the old audio, including its end-of-song behaviour,
+- Any sample-exact reproduction of the old audio, including its end-of-tune behaviour,
   its wrap-around on loud passages, and its WAV header without a length.
 - Tones in the end phase.
 - MIDI or any other note-based export; it cannot express this music.
@@ -663,8 +728,9 @@ recordings are still in the git history.
   the one that hit the 0/0 and silenced the output, so no end-phase tone is ever heard
   and the tune is unaffected.
 - **"Sounds right" is a judgement.** Verification item 6 puts a number on it for the v4
-  patch, but the final check is listening. For v6 the number may come out lower: its
-  slowdown also stretched the envelope in the old code.
+  patch, but the final check is listening. (Measured.) For v6 the number did not come
+  out lower than the original program's own: a strike's age is counted in slots, which
+  follows the slowdown the way the old code did.
 - **Loud seeds.** Over 192 sampled seeds the v4 scale peaked at a median of 55 % of full
   scale; three seeds exceeded 90 %, and one (1297700025) exceeded full scale and
   wrapped. The automatic turn-down covers this.
@@ -681,7 +747,7 @@ recordings are still in the git history.
 
 Answered 2026-10-01.
 
-1. **Output gain.** The plan's default: each tune keeps the old scale and is turned
+1. **Output gain.** The plan's default: each tune keeps the old loudness and is turned
    down only when it would exceed full scale.
 2. **A plain `chimes make`** uses the 14 February (v4) rules and sound.
 3. **The 2022 Mac tunes are not part of the new program.** They remain a legacy
@@ -690,7 +756,8 @@ Answered 2026-10-01.
    (seed 1635773128) therefore no longer matters.
 4. **The 2020 variants: not now.** To be dealt with later. Keep the code reasonably
    modular for a future refactor, but not over-abstracted.
-5. **OGG:** piping into `ffmpeg` or `oggenc` is enough. No built-in encoder.
+5. **OGG:** piping into `ffmpeg` or `oggenc` is enough. No built-in encoder. (As built: the
+   pipe works with `ffmpeg`; `oggenc` needs the finished WAV file.)
 6. **Editing scores by hand: not yet.** To be dealt with later, with the same guidance
    as answer 4. Until then the score reader only has to accept files the program wrote
    itself.

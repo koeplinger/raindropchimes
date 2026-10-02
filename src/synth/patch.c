@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "synth/reverb.h"
+#include "synth/soften.h"
 
 /* The old code gave every time as a count of samples at 44.1 kHz. */
 #define SAMPLES(n) ((n) / 44100.0)
@@ -23,6 +24,32 @@ static const ReverbConfig V4_REVERB = {
         { SAMPLES(17000.0),  0.08, 1 },
         { SAMPLES(19000.0),  0.12, 0 },
     }
+};
+
+/* ------------------------------------------------- v6: 18 February 2011 */
+
+/* Two more taps, and the first five a little weaker. The code in legacy/
+ * (v10) has the same reverb. */
+static const ReverbConfig V6_REVERB = {
+    .n_taps = 7,
+    .taps = {
+        /*  delay            gain  swap */
+        { SAMPLES( 7000.0),  0.28, 0 },
+        { SAMPLES( 9500.0),  0.09, 1 },
+        { SAMPLES(12000.0),  0.17, 0 },
+        { SAMPLES(17000.0),  0.07, 1 },
+        { SAMPLES(19000.0),  0.11, 0 },
+        { SAMPLES(30000.0),  0.05, 1 },
+        { SAMPLES(35000.0),  0.07, 0 },
+    }
+};
+
+/* ------------------------------------- bell: a worked example of a new sound */
+
+/* See docs/EXTENDING.md. Takes the edge off the bell wave's overtones before
+ * they reach the reverb. */
+static const SoftenConfig BELL_SOFTEN = {
+    .cutoff_hz = 4000.0
 };
 
 /* ------------------------------------------------------------- the list */
@@ -42,6 +69,54 @@ static const Patch PATCHES[] = {
         .pan                    = "linear",
         .n_effects              = 1,
         .effects                = { { "reverb", &V4_REVERB } },
+    },
+    {
+        /* The v4 sound with the "ding" envelope and the longer reverb. */
+        .name                   = "v6",
+        .wave                   = "cosine",
+        .phase_restarts         = 0,
+        .loudness               = "inverse_freq",
+        .loudness_constant      = 600000.0 / 32768.0,
+        .strike_gain            = "linear",
+        .envelope               = "v6",
+        .vibrato_depth          = 0.0005,
+        .vibrato_period_seconds = SAMPLES(18000.0),
+        .vibrato_spread         = 0.001,
+        .pan                    = "linear",
+        .n_effects              = 1,
+        .effects                = { { "reverb", &V6_REVERB } },
+    },
+    {
+        /* The v6 sound with twice the vibrato. */
+        .name                   = "v10",
+        .wave                   = "cosine",
+        .phase_restarts         = 0,
+        .loudness               = "inverse_freq",
+        .loudness_constant      = 600000.0 / 32768.0,
+        .strike_gain            = "linear",
+        .envelope               = "v6",
+        .vibrato_depth          = 0.0010,
+        .vibrato_period_seconds = SAMPLES(18000.0),
+        .vibrato_spread         = 0.001,
+        .pan                    = "linear",
+        .n_effects              = 1,
+        .effects                = { { "reverb", &V6_REVERB } },
+    },
+    {
+        /* The v4 sound with the bell wave form, softened before the reverb. */
+        .name                   = "bell",
+        .wave                   = "bell",
+        .phase_restarts         = 0,
+        .loudness               = "inverse_freq",
+        .loudness_constant      = 600000.0 / 32768.0,
+        .strike_gain            = "linear",
+        .envelope               = "v4",
+        .vibrato_depth          = 0.0005,
+        .vibrato_period_seconds = SAMPLES(18000.0),
+        .vibrato_spread         = 0.001,
+        .pan                    = "linear",
+        .n_effects              = 2,
+        .effects                = { { "soften", &BELL_SOFTEN }, { "reverb", &V4_REVERB } },
     },
 };
 

@@ -7,7 +7,8 @@
  *      second time, sample by sample;
  *   3. the phase runs on from tone to tone, through the zero-gain strike,
  *      and holds while the slot holds a tracked tone or no tone; a patch
- *      with phase_restarts set starts every tone at phase zero.
+ *      with phase_restarts set starts every tone at phase zero;
+ *   4. a tone at or above half the sample rate is not sounded.
  */
 #include <math.h>
 #include <stdio.h>
@@ -273,6 +274,39 @@ static void check_phase(const Patch *dry)
     free(from_zero);
 }
 
+/* --------------------------------------- 4. tones the sample rate cannot carry */
+
+/* The loudest sample of a one-tone score at the given sample rate. */
+static double loudest(const Patch *dry, double freq, double rate)
+{
+    Score score;
+    Capture capture;
+    RenderStats stats;
+    double peak = 0.0;
+    long i;
+
+    one_tone_score(&score, 0, freq, PAN, 1);
+    render_dry(&score, dry, rate, &capture, &stats);
+    for (i = 0; i < 2 * capture.frames; i++)
+        if (fabs(capture.samples[i]) > peak) peak = fabs(capture.samples[i]);
+    capture_free(&capture);
+    score_free(&score);
+    return peak;
+}
+
+/* A tone at or above half the sample rate would come out as another, wrong
+ * frequency (5000 Hz at a sample rate of 8000 Hz would sound as 3000 Hz).
+ * It is left out instead. Just below half the sample rate it still sounds. */
+static void check_too_high(const Patch *dry)
+{
+    if (loudest(dry, 5000.0, 8000.0) != 0.0) fail("a tone of 5000 Hz was sounded at a sample rate of 8000 Hz");
+    if (loudest(dry, 4000.0, 8000.0) != 0.0) fail("a tone at exactly half the sample rate was sounded");
+    if (loudest(dry, 3990.0, 8000.0) == 0.0) fail("a tone of 3990 Hz was left out at a sample rate of 8000 Hz");
+    if (loudest(dry, 5000.0, 44100.0) == 0.0) fail("a tone of 5000 Hz was left out at 44100 Hz");
+    if (loudest(dry, 16000.0, 44100.0) == 0.0) fail("the highest tone of the v4 rules was left out at 44100 Hz");
+    printf("a tone at or above half the sample rate is left out; one just below it sounds\n");
+}
+
 int main(void)
 {
     Patch dry = dry_patch("v4");
@@ -281,6 +315,7 @@ int main(void)
     check_measurements(&dry, 48000.0);
     check_against_plan(&dry);
     check_phase(&dry);
+    check_too_high(&dry);
 
     printf("ok: single tone\n");
     return 0;

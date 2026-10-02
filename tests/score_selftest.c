@@ -78,10 +78,31 @@ int main(int argc, char **argv)
     /* 1. A sound score passes, and survives write -> read -> write unchanged. */
     build(&score);
     expect(score_check(&score, err, sizeof err) == 0, "a sound score passes score_check");
-    score_set_render_note(&score, "bins", "1700");
-    score_set_render_note(&score, "command", "chimes make --seed 1 -o a b.wav");
-    score_set_render_note(&score, "bins", "3401");
-    expect(strcmp(score_render_note(&score, "bins"), "3401") == 0, "a render note can be replaced");
+    score_set_render_line(&score, "bins", "1700");
+    score_set_render_line(&score, "command", "chimes make --seed 1 -o a b.wav");
+    score_set_render_line(&score, "bins", "3401");
+    expect(strcmp(score_render_line(&score, "bins"), "3401") == 0, "a render line can be replaced");
+    {
+        /* Nothing is dropped or cut short in silence: what does not fit is refused. */
+        char long_value[SCORE_RENDER_VALUE_LEN + 1], fits[SCORE_RENDER_VALUE_LEN];
+        char key[16];
+        int n;
+        memset(long_value, 'x', sizeof long_value - 1); long_value[sizeof long_value - 1] = '\0';
+        memset(fits, 'x', sizeof fits - 1); fits[sizeof fits - 1] = '\0';
+        expect(score_set_render_line(&score, "long", long_value) != 0, "a value that is too long is refused");
+        expect(score_set_render_line(&score, "a-key-that-is-too-long", "x") != 0, "a key that is too long is refused");
+        expect(score_set_render_line(&score, "fits", fits) == 0, "a value of the greatest length is kept");
+        expect(strlen(score_render_line(&score, "fits")) == SCORE_RENDER_VALUE_LEN - 1, "... and kept whole");
+        for (n = score.n_render; n < SCORE_RENDER_LINES; n++) {
+            snprintf(key, sizeof key, "k%d", n);
+            expect(score_set_render_line(&score, key, "x") == 0, "as many render lines as there is room for are kept");
+        }
+        expect(score_set_render_line(&score, "one-more", "x") != 0, "one render line too many is refused");
+        expect(score_set_render_line(&score, "bins", "3401") == 0, "... but an existing one can still be replaced");
+        score_clear_render_lines(&score);
+        score_set_render_line(&score, "bins", "3401");
+        score_set_render_line(&score, "command", "chimes make --seed 1 -o a b.wav");
+    }
     {
         char first[4096], second[4096];
         size_t n1, n2;
@@ -102,8 +123,8 @@ int main(int argc, char **argv)
         expect(copy.n_tones == 3 && copy.seed == 4294967295u && copy.cycles == 40, "settings survive");
         expect(copy.tones[1].level == 0.223691167760108, "a continuous level reads back exactly");
         expect(copy.tones[2].freq_hz == score.tones[2].freq_hz, "frequencies are recomputed exactly");
-        expect(strcmp(score_render_note(&copy, "command"), "chimes make --seed 1 -o a b.wav") == 0,
-               "render notes survive, spaces included");
+        expect(strcmp(score_render_line(&copy, "command"), "chimes make --seed 1 -o a b.wav") == 0,
+               "render lines survive, spaces included");
         expect(strstr(first, " 0.223691167760108 ") != NULL, "levels print with the fewest digits");
         score_free(&copy);
     }
@@ -117,6 +138,11 @@ int main(int argc, char **argv)
     build(&score); score.tones[2].parent = 5; check_fails(&score, "earlier", "a parent must exist"); score_free(&score);
     build(&score); score.tones[1].freq_hz *= 1.0000001; check_fails(&score, "ratio", "frequency must be parent * ratio"); score_free(&score);
     build(&score); score.tones[1].reps = 0; check_fails(&score, "repetition", "repetition count below 1"); score_free(&score);
+    build(&score); score.tones[1].reps = 2147483647; check_fails(&score, "largest tick", "strikes running past the largest tick"); score_free(&score);
+    build(&score); score.tones[1].reps = 195225786;   /* 1 + 11 * 195225787 = 2147483658: too far */
+    check_fails(&score, "largest tick", "strikes ending just past the largest tick"); score_free(&score);
+    build(&score); score.tones[2].reps = 195225784;   /* 2 + 11 * 195225785 = 2147483637: just fits */
+    expect(score_check(&score, err, sizeof err) == 0, "strikes ending just below the largest tick are fine"); score_free(&score);
     build(&score); score.tones[1].den = 0; check_fails(&score, "ratio", "zero denominator"); score_free(&score);
     build(&score); score.tones[1].level = 1.5; check_fails(&score, "level", "level above 1"); score_free(&score);
     build(&score); score.tones[1].pan = -0.1; check_fails(&score, "pan", "pan below 0"); score_free(&score);
@@ -143,6 +169,13 @@ int main(int argc, char **argv)
     expect(!reads(HEADER "0 0 0 - - 440x 0.50 2 1 -\n"), "trailing junk in a number is refused");
     expect(!reads(HEADER "@ tempo 3\n0 0 0 - - 440 0.50 2 1 -\n"), "an unknown setting is refused");
     expect(!reads(HEADER), "a score without tones is refused");
+    expect(!reads(HEADER "0 0 0 - - 440 0.50 2147483647 1 -\n"), "a repetition count that overflows the ticks is refused");
+    expect(reads(HEADER "# render: bins 1700\n# just a comment\n0 0 0 - - 440 0.50 2 1 -\n"), "render lines and comments read");
+    expect(!reads(HEADER "# render: bins\n0 0 0 - - 440 0.50 2 1 -\n"), "a render line without a value is refused");
+    expect(!reads(HEADER "# render: k1 x\n# render: k2 x\n# render: k3 x\n# render: k4 x\n# render: k5 x\n"
+                  "# render: k6 x\n# render: k7 x\n# render: k8 x\n# render: k9 x\n# render: k10 x\n"
+                  "# render: k11 x\n# render: k12 x\n# render: k13 x\n# render: k14 x\n# render: k15 x\n"
+                  "# render: k16 x\n# render: k17 x\n0 0 0 - - 440 0.50 2 1 -\n"), "more render lines than there is room for are refused");
 
     /* 4. A given file: read, write to standard output (the check script compares). */
     if (argc > 1) {

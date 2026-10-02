@@ -1,20 +1,15 @@
-# Reference tone list for the favourite tune (legacy/examples/sndharmonics4_1700-400c.ogg).
-# Produced by the 2011-02-14 source (legacy/examples/sndharmonics4.source.2011.02.14.tar.gz) with v4_trace.patch
-# applied (it logs the tones and takes the seed from the command line; the composing is unchanged):
-# srand(1297735820), glibc rand(), totalSongTime = 500. Three independent traced runs agree on every line.
-# Covers cycles 0..469 (ticks 0..5169): everything before the end phase. The last audible tone starts at tick 5154.
-# A new composer given the same rules, generator, seed and cycles must reproduce this list exactly.
-#
-# tick     slot boundary index; cycle = tick / 11, slot = tick % 11
-# parent   tick at which the tone it derives from was created (the tone then occupying the previous slot)
-# ratio    exact frequency ratio to the parent tone
-# freq_hz  resulting frequency (a double-precision number, 17 significant digits)
-# pan      0 = left .. 1 = right
-# reps     repetition count N: struck N+1 times, once per cycle, at gain N/N, (N-1)/N, .. 0/N
-# level    1 = sounds, 0 = tracked silently (still passes its frequency on to the next slot)
-# jitter   raw 0..99 draw; the 2011 sound uses it for the vibrato period, 18000 * (1 + 0.001 * jitter)
-#          samples at 44.1 kHz ('-' = no draw, 18000)
-#
+# raindropchimes score 1
+@ rules v4
+@ generator glibc
+@ seed 1297735820
+@ cycles 500
+@ slots 11
+# render: patch v4
+# render: bins 1700
+# render: drift 0
+# render: rate 44100
+# render: gain 1
+# render: command chimes make --rules v4 --seed 1297735820 --cycles 500 --patch v4 --bins 1700 --drift 0 --rate 44100 --gain 1 -o -
 # tick cycle slot parent ratio freq_hz pan reps level jitter
 0 0 0 - - 1299.5451597662952 0.26 13 1 -
 1 0 1 0 5/16 406.10786242696724 0.70 3 0 49

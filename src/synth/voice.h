@@ -43,6 +43,8 @@ typedef struct {
     int64_t     strike_tick;     /* the tick at which that strike began                */
     double      phase;           /* radians, kept within 0 .. 2 pi                     */
     double      phase_step;      /* phase per frame without vibrato                    */
+    int         highest;         /* highest multiple of the tone's frequency below
+                                    half the sample rate (see WaveFn in shapes.h)      */
     double      vibrato_frames;  /* this tone's vibrato period, in frames              */
     double      vibrato_count;   /* frames played since the tone was created           */
     double      left, right;     /* loudness * level * strike gain, split by the pan   */

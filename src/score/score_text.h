@@ -13,7 +13,7 @@
  *
  * Lines starting with '#' are comments, with two exceptions: the first line
  * names the format version and is checked, and "# render: key value" lines
- * are remembered as render notes. '@' lines hold what the composer used.
+ * are remembered as render lines. '@' lines hold what the composer used.
  * Every other line is one tone.
  */
 #ifndef CHIMES_SCORE_TEXT_H

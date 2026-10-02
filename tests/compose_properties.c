@@ -1,15 +1,18 @@
 /* compose_properties.c -- test helper: what must hold for every tune the
- * composer makes, tried over 1,000 seeds per built-in rule set, and what the
- * composer must refuse (docs/REVAMP_PLAN.md, section 7, item 8).
+ * composer makes, tried over 1,000 seeds per built-in rule set (v4, v6 and
+ * v10), and what the composer must refuse (docs/REVAMP_PLAN.md, section 7,
+ * item 8).
  *
  * Prints one line per failure and a summary. Exit status 0 = all good.
  */
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "compose/compose.h"
+#include "score/score_text.h"
 
 #define SEEDS         1000
 #define CYCLES        500
@@ -37,6 +40,14 @@ static int compose(const Rules *rules, uint32_t seed, int cycles, Score *score)
         return -1;
     }
     return 0;
+}
+
+/* After a refusal or a failure the composer must leave the score as empty as
+ * score_init made it: no tones, and none of the settings either. */
+static int left_empty(const Score *score)
+{
+    return score->n_tones == 0 && score->rules[0] == '\0' && score->cycles == 0
+        && score->slots == 0;
 }
 
 static int same_tone(const Tone *a, const Tone *b)
@@ -215,7 +226,7 @@ static int check_rule_set(const Rules *rules, int seeds, int repeat_too)
 {
     Score score, other;
     long tones = 0, tracked = 0;
-    int bad = 0, i;
+    int bad = 0, roots_outside = 0, i;
 
     score_init(&score);
     score_init(&other);
@@ -226,6 +237,8 @@ static int check_rule_set(const Rules *rules, int seeds, int repeat_too)
         if (compose(rules, seed, CYCLES, &score) != 0) { bad++; continue; }
         bad += check_tune(rules, &score, seed);
         tones += score.n_tones;
+        if (score.tones[0].freq_hz < rules->freq_min || score.tones[0].freq_hz > rules->freq_max)
+            roots_outside++;
         for (k = 0; k < score.n_tones; k++)
             if (score.tones[k].level == 0.0) tracked++;
 
@@ -245,8 +258,9 @@ static int check_rule_set(const Rules *rules, int seeds, int repeat_too)
         if (repeat_too) bad += check_repeatable(rules, seed, &score, &other);
         score_free(&score);
     }
-    printf("rules %s: %d seeds, %ld tones (%ld of them tracked), %d failures\n",
-           rules->name, seeds, tones, tracked, bad);
+    printf("rules %s: %d seeds, %ld tones (%ld of them tracked; %d first tones outside the "
+           "range for new tones), %d failures\n",
+           rules->name, seeds, tones, tracked, roots_outside, bad);
     return bad;
 }
 
@@ -257,8 +271,8 @@ static int check_built_in_rule_sets(void)
     char err[300];
     int bad = 0, i;
 
-    if (rules_count() < 1 || !rules_find("v4")) {
-        printf("FAIL the rule set v4 is not built in\n");
+    if (!rules_find("v4") || !rules_find("v6") || !rules_find("v10")) {
+        printf("FAIL the rule sets v4, v6 and v10 are not all built in\n");
         bad++;
     }
     if (rules_at(-1) || rules_at(rules_count()) || rules_find("no-such-rules") || rules_find(NULL)) {
@@ -300,7 +314,8 @@ static int expect_refused(const Rules *broken, const char *field, const char *wh
 
     score_init(&score);
     rng_seed(&rng, 1);
-    if (slotwalk_compose(broken, &rng, CYCLES, &score, err, sizeof err) == 0 || score.n_tones != 0) {
+    if (slotwalk_compose(broken, &rng, CYCLES, &score, err, sizeof err) == 0
+            || !left_empty(&score)) {
         printf("FAIL the composer accepts %s\n", what);
         bad = 1;
     }
@@ -311,6 +326,7 @@ static int expect_refused(const Rules *broken, const char *field, const char *wh
 static int check_broken_rule_sets(const Rules *good)
 {
     Rules broken;
+    char err[300];
     int bad = 0;
 
     broken = *good;  broken.n_reps = good->n_reps - 1;
@@ -349,6 +365,20 @@ static int check_broken_rule_sets(const Rules *good)
     broken = *good;  broken.end_cycles = -1;
     bad += expect_refused(&broken, "end_cycles", "a negative end phase");
 
+    /* An end phase of absurd length. The largest whole number there is used
+     * to send the composer's arithmetic past the end of its range. */
+    broken = *good;  broken.end_cycles = INT_MAX;
+    bad += expect_refused(&broken, "end_cycles", "an end phase of the largest number of cycles there is");
+
+    broken = *good;  broken.end_cycles = 1000001;
+    bad += expect_refused(&broken, "end_cycles", "an end phase one cycle above its limit");
+
+    broken = *good;  broken.end_cycles = 1000000;
+    if (rules_check(&broken, err, sizeof err) != 0) {
+        printf("FAIL the start-up check refuses an end phase at its limit: %s\n", err);
+        bad++;
+    }
+
     broken = *good;  broken.jitter_range = 0;
     bad += expect_refused(&broken, "jitter_range", "an empty jitter range");
 
@@ -378,13 +408,28 @@ static int check_refusals(const Rules *good)
      * formula would divide by zero. */
     err[0] = '\0';
     if (slotwalk_compose(good, &rng, good->end_cycles + 1, &score, err, sizeof err) == 0
-            || !strstr(err, "cycles") || score.n_tones != 0) {
-        printf("FAIL %d cycles are not refused properly: %s\n", good->end_cycles + 1, err);
+            || !strstr(err, "cycles") || !left_empty(&score)) {
+        printf("FAIL rules %s: %d cycles are not refused properly: %s\n", good->name,
+               good->end_cycles + 1, err);
         bad++;
     }
     if (slotwalk_compose(good, &rng, 0, &score, err, sizeof err) == 0
-            || slotwalk_compose(good, &rng, -5, &score, err, sizeof err) == 0) {
-        printf("FAIL zero or negative cycles are not refused\n");
+            || slotwalk_compose(good, &rng, -5, &score, err, sizeof err) == 0
+            || !left_empty(&score)) {
+        printf("FAIL rules %s: zero or negative cycles are not refused\n", good->name);
+        bad++;
+    }
+
+    /* Too many cycles: the limit is 100,000,000. */
+    err[0] = '\0';
+    if (slotwalk_compose(good, &rng, 100000001, &score, err, sizeof err) == 0
+            || !strstr(err, "cycles") || !strstr(err, "at most 100000000") || !left_empty(&score)) {
+        printf("FAIL rules %s: 100000001 cycles are not refused properly: %s\n", good->name, err);
+        bad++;
+    }
+    if (slotwalk_compose(good, &rng, INT_MAX, &score, err, sizeof err) == 0
+            || !left_empty(&score)) {
+        printf("FAIL rules %s: the largest number of cycles there is is not refused\n", good->name);
         bad++;
     }
 
@@ -394,13 +439,15 @@ static int check_refusals(const Rules *good)
 
     /* A score that already holds tones is not composed into. */
     if (slotwalk_compose(good, &rng, CYCLES, &score, err, sizeof err) == 0) {
-        printf("FAIL the composer fills a score that is not empty\n");
+        printf("FAIL rules %s: the composer fills a score that is not empty\n", good->name);
         bad++;
     }
     score_free(&score);
 
     /* A frequency range that no tone can ever reach passes the start-up
-     * check, but the ratio redraw must give up instead of running for ever. */
+     * check, but the ratio redraw must give up instead of running for ever.
+     * By then the first tone exists, so this is a failure half way through
+     * a tune: nothing of that tune may be left in the score. */
     unreachable.name = "unreachable";
     unreachable.freq_min = 1e6;
     unreachable.freq_max = 2e6;
@@ -408,13 +455,81 @@ static int check_refusals(const Rules *good)
     rng_seed(&rng, 1);
     if (rules_check(&unreachable, err, sizeof err) != 0
             || slotwalk_compose(&unreachable, &rng, CYCLES, &score, err, sizeof err) == 0
-            || !strstr(err, "10000") || score.n_tones != 0) {
-        printf("FAIL the ratio redraw does not give up properly: %s\n", err);
+            || !strstr(err, "10000")) {
+        printf("FAIL rules %s: the ratio redraw does not give up properly: %s\n", good->name, err);
+        bad++;
+    } else if (!left_empty(&score)) {
+        printf("FAIL rules %s: after composing failed half way, the score still holds %d tones, "
+               "rules \"%s\", %d cycles, %d slots\n", good->name, (int) score.n_tones,
+               score.rules, (int) score.cycles, (int) score.slots);
         bad++;
     }
     score_free(&score);
 
-    printf("refusals: %d failures\n", bad);
+    printf("refusals, rules %s: %d failures\n", good->name, bad);
+    return bad;
+}
+
+/* The longest piece is 100,000,000 cycles, and that is also the most the
+ * score reader accepts: a score the composer makes can always be read back.
+ * Tried with a single slot and long tones, so that the longest piece there
+ * is has only about 100,000 tones. */
+static int check_longest_piece(const Rules *good)
+{
+    Rules variant = *good;
+    Score score, reread;
+    Rng rng;
+    char err[300] = "";
+    FILE *file;
+    int bad = 0, i;
+
+    variant.name = "test-longest";
+    variant.slots = 1;
+    for (i = 0; i < variant.n_reps; i++) variant.reps[i] = 1000;
+
+    score_init(&score);
+    score_init(&reread);
+    if (compose(&variant, 1, 100000000, &score) != 0) {
+        bad++;
+    } else {
+        bad += check_tune(&variant, &score, 1);
+        score.seed = 1;
+        snprintf(score.generator, sizeof score.generator, "%s", RNG_NAME);
+
+        file = tmpfile();
+        if (!file || score_write(file, &score) != 0) {
+            printf("FAIL the longest piece cannot be written to a temporary file\n");
+            bad++;
+        } else {
+            rewind(file);
+            if (score_read(file, &reread, err, sizeof err) != 0) {
+                printf("FAIL the score reader refuses the longest piece: %s\n", err);
+                bad++;
+            } else if (reread.cycles != score.cycles || !same_tones(&score, &reread)) {
+                printf("FAIL the longest piece is not the same after writing and reading it back\n");
+                bad++;
+            }
+        }
+        if (file) fclose(file);
+    }
+    printf("the longest piece (100000000 cycles, %d tones) is composed, written and read back: "
+           "%d failures\n", (int) score.n_tones, bad);
+    score_free(&score);
+    score_free(&reread);
+
+    /* With more than 20 slots the limit is lower, so that tick numbers stay
+     * within a 32-bit whole number: 1000 slots allow 2,000,000 cycles. */
+    variant = *good;
+    variant.name = "test-1000-slots";
+    variant.slots = 1000;
+    rng_seed(&rng, 1);
+    err[0] = '\0';
+    if (slotwalk_compose(&variant, &rng, 2000001, &score, err, sizeof err) == 0
+            || !strstr(err, "at most 2000000") || !left_empty(&score)) {
+        printf("FAIL 2000001 cycles of 1000 slots are not refused properly: %s\n", err);
+        bad++;
+    }
+    score_free(&score);
     return bad;
 }
 
@@ -469,16 +584,18 @@ static int check_variants(const Rules *good)
 int main(void)
 {
     const Rules *v4 = rules_find("v4");
-    int bad;
+    int bad, i;
 
     /* Print line by line, so that the messages survive if a later step crashes. */
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     bad = check_built_in_rule_sets();
 
+    for (i = 0; i < rules_count(); i++) bad += check_refusals(rules_at(i));
+
     if (v4) {
         bad += check_broken_rule_sets(v4);
-        bad += check_refusals(v4);
+        bad += check_longest_piece(v4);
         bad += check_variants(v4);
     }
     printf("%s\n", bad ? "composer properties: FAILED" : "composer properties: all hold");

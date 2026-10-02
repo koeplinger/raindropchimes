@@ -15,7 +15,7 @@ $CC $CFLAGS -Isrc -o tests/bin/compose_tones tests/compose_tones.c $SOURCES -lm 
 $CC $CFLAGS -Isrc -o tests/bin/compose_compare tests/compose_compare.c -lm || exit 1
 
 # On Linux every digit must match. Elsewhere the maths library may round the
-# first frequency differently in its last digit; that passes, with a note.
+# first frequency differently in its last digit; that passes, with a remark.
 case "$(uname -s)" in
     Linux) mode=exact ;;
     *)     mode=loose ;;
